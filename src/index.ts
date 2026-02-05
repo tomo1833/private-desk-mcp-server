@@ -1,15 +1,10 @@
 #!/usr/bin/env node
 
 import 'dotenv/config';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import {
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createServer } from 'http';
+import { z } from 'zod';
 
 import {
   searchPrivateDesk,
@@ -53,7 +48,7 @@ type JsonRpcResponse = {
 };
 
 // MCP サーバーの初期化
-const server = new Server(
+const mcpServer = new McpServer(
   {
     name: 'private-desk-mcp',
     version: '1.0.0',
@@ -66,610 +61,324 @@ const server = new Server(
   }
 );
 
-// リソース定義
-async function listResources() {
-  return {
-    resources: [
-      {
-        uri: 'private-desk://search',
-        name: 'Private Desk Search',
-        description: 'Search across all Private Desk data (passwords, diaries, wikis, blogs)',
-        mimeType: 'application/json',
-      },
-      {
-        uri: 'private-desk://diaries',
-        name: 'All Diaries',
-        description: 'List all diary entries',
-        mimeType: 'application/json',
-      },
-      {
-        uri: 'private-desk://wikis',
-        name: 'All Wiki Pages',
-        description: 'List all wiki pages',
-        mimeType: 'application/json',
-      },
-      {
-        uri: 'private-desk://blogs',
-        name: 'All Blog Posts',
-        description: 'List all blog posts',
-        mimeType: 'application/json',
-      },
-      {
-        uri: 'private-desk://passwords',
-        name: 'Password Entries (metadata only)',
-        description: 'List all password manager entries (without passwords)',
-        mimeType: 'application/json',
-      },
-    ],
-  };
-}
-
-// リソース読み込み
-async function readResource(uri: string) {
-  try {
-    if (uri === 'private-desk://diaries') {
-      const diaries = await getAllDiaries();
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(diaries, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (uri === 'private-desk://wikis') {
-      const wikis = await getAllWikis();
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(wikis, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (uri === 'private-desk://blogs') {
-      const blogs = await getAllBlogs();
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(blogs, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (uri === 'private-desk://passwords') {
-      const passwords = await getAllPasswords();
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(passwords, null, 2),
-          },
-        ],
-      };
-    }
-
-    if (uri.startsWith('private-desk://search?q=')) {
-      const query = decodeURIComponent(uri.replace('private-desk://search?q=', ''));
-      const result = await searchPrivateDesk(query, 10);
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(result, null, 2),
-          },
-        ],
-      };
-    }
-
-    return {
-      contents: [
-        {
-          uri,
-          mimeType: 'text/plain',
-          text: 'Resource not found',
-        },
-      ],
-    };
-  } catch (error) {
-    return {
-      contents: [
-        {
-          uri,
-          mimeType: 'text/plain',
-          text: `Error reading resource: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      ],
-    };
-  }
-}
-
-// ツール定義
-async function listTools() {
-  return {
-    tools: [
-      {
-        name: 'search_private_desk',
-        description: 'Search across Private Desk data (passwords, diaries, wikis, blogs)',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            query: {
-              type: 'string',
-              description: 'Search query',
-            },
-            limit: {
-              type: 'number',
-              description: 'Maximum number of results per table (default: 5)',
-            },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'read_diary',
-        description: 'Read a specific diary entry',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Diary entry ID',
-            },
-          },
-          required: ['id'],
-        },
-      },
-      {
-        name: 'write_diary',
-        description: 'Create a new diary entry',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            title: {
-              type: 'string',
-              description: 'Diary entry title',
-            },
-            content: {
-              type: 'string',
-              description: 'Diary entry content (Markdown)',
-            },
-          },
-          required: ['title', 'content'],
-        },
-      },
-      {
-        name: 'update_diary',
-        description: 'Update an existing diary entry',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Diary entry ID',
-            },
-            title: {
-              type: 'string',
-              description: 'Diary entry title',
-            },
-            content: {
-              type: 'string',
-              description: 'Diary entry content (Markdown)',
-            },
-          },
-          required: ['id', 'title', 'content'],
-        },
-      },
-      {
-        name: 'delete_diary',
-        description: 'Delete a diary entry',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Diary entry ID',
-            },
-          },
-          required: ['id'],
-        },
-      },
-      {
-        name: 'read_wiki',
-        description: 'Read a specific wiki page',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Wiki page ID',
-            },
-          },
-          required: ['id'],
-        },
-      },
-      {
-        name: 'write_wiki',
-        description: 'Create a new wiki page',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            title: {
-              type: 'string',
-              description: 'Wiki page title',
-            },
-            content: {
-              type: 'string',
-              description: 'Wiki page content (Markdown)',
-            },
-          },
-          required: ['title', 'content'],
-        },
-      },
-      {
-        name: 'update_wiki',
-        description: 'Update an existing wiki page',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Wiki page ID',
-            },
-            title: {
-              type: 'string',
-              description: 'Wiki page title',
-            },
-            content: {
-              type: 'string',
-              description: 'Wiki page content (Markdown)',
-            },
-          },
-          required: ['id', 'title', 'content'],
-        },
-      },
-      {
-        name: 'delete_wiki',
-        description: 'Delete a wiki page',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Wiki page ID',
-            },
-          },
-          required: ['id'],
-        },
-      },
-      {
-        name: 'read_blog',
-        description: 'Read a specific blog post',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Blog post ID',
-            },
-          },
-          required: ['id'],
-        },
-      },
-      {
-        name: 'write_blog',
-        description: 'Create a new blog post',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            title: {
-              type: 'string',
-              description: 'Blog post title',
-            },
-            content: {
-              type: 'string',
-              description: 'Blog post content',
-            },
-            content_markdown: {
-              type: 'string',
-              description: 'Blog post markdown content',
-            },
-            content_html: {
-              type: 'string',
-              description: 'Blog post HTML content',
-            },
-            eyecatch: {
-              type: 'string',
-              description: 'Eyecatch image URL',
-            },
-            permalink: {
-              type: 'string',
-              description: 'Blog post permalink',
-            },
-            site: {
-              type: 'string',
-              description: 'Blog site name',
-            },
-            author: {
-              type: 'string',
-              description: 'Blog post author',
-            },
-            persona: {
-              type: 'string',
-              description: 'Blog post persona',
-            },
-          },
-          required: ['title', 'content', 'content_markdown', 'content_html', 'eyecatch', 'permalink', 'site', 'author', 'persona'],
-        },
-      },
-      {
-        name: 'update_blog',
-        description: 'Update an existing blog post',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Blog post ID',
-            },
-            title: {
-              type: 'string',
-              description: 'Blog post title',
-            },
-            content: {
-              type: 'string',
-              description: 'Blog post content',
-            },
-            content_markdown: {
-              type: 'string',
-              description: 'Blog post markdown content',
-            },
-            content_html: {
-              type: 'string',
-              description: 'Blog post HTML content',
-            },
-          },
-          required: ['id', 'title', 'content', 'content_markdown', 'content_html'],
-        },
-      },
-      {
-        name: 'delete_blog',
-        description: 'Delete a blog post',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            id: {
-              type: 'number',
-              description: 'Blog post ID',
-            },
-          },
-          required: ['id'],
-        },
-      },
-      {
-        name: 'search_passwords',
-        description: 'Search password manager entries',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            query: {
-              type: 'string',
-              description: 'Search query',
-            },
-          },
-          required: ['query'],
-        },
-      },
-    ],
-  };
-}
-
-// ツール実行
-async function callTool(name: string, args: Record<string, unknown>) {
-  try {
-    if (name === 'search_private_desk') {
-      const query = (args as Record<string, unknown>).query as string;
-      const limit = (args as Record<string, unknown>).limit as number | undefined || 5;
-
-      const result = await searchPrivateDesk(query, limit);
+// ツールとリソースの登録
+function registerToolsAndResources() {
+  // search_private_desk ツール
+  mcpServer.tool(
+    'search_private_desk',
+    'Search across Private Desk data (passwords, diaries, wikis, blogs)',
+    {
+      query: z.string().describe('Search query'),
+      limit: z.number().optional().describe('Maximum number of results per table (default: 5)'),
+    },
+    async ({ query, limit }) => {
+      const result = await searchPrivateDesk(query, limit ?? 5);
       const context = buildSearchContext(result);
-
       const summary = buildLocalSummary(result);
+      
       return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              {
-                summary,
-                context,
-                sources: result,
-              },
-              null,
-              2
-            ),
-          },
-        ],
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ summary, context, sources: result }, null, 2),
+        }],
       };
     }
+  );
 
-    if (name === 'read_diary') {
-      const id = (args as Record<string, unknown>).id as number;
+  // read_diary ツール
+  mcpServer.tool(
+    'read_diary',
+    'Read a specific diary entry',
+    {
+      id: z.number().describe('Diary entry ID'),
+    },
+    async ({ id }) => {
       const diary = await getDiary(id);
       if (!diary) {
         return {
-          content: [{ type: 'text', text: `Diary entry with ID ${id} not found` }],
+          content: [{ type: 'text' as const, text: `Diary entry with ID ${id} not found` }],
           isError: true,
         };
       }
       return {
-        content: [{ type: 'text', text: JSON.stringify(diary, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(diary, null, 2) }],
       };
     }
+  );
 
-    if (name === 'write_diary') {
-      const title = (args as Record<string, unknown>).title as string;
-      const content = (args as Record<string, unknown>).content as string;
+  // write_diary ツール
+  mcpServer.tool(
+    'write_diary',
+    'Create a new diary entry',
+    {
+      title: z.string().describe('Diary entry title'),
+      content: z.string().describe('Diary entry content (Markdown)'),
+    },
+    async ({ title, content }) => {
       const id = await createDiary(title, content);
       return {
-        content: [{ type: 'text', text: `Diary entry created with ID: ${id}` }],
+        content: [{ type: 'text' as const, text: `Diary entry created with ID: ${id}` }],
       };
     }
+  );
 
-    if (name === 'update_diary') {
-      const id = (args as Record<string, unknown>).id as number;
-      const title = (args as Record<string, unknown>).title as string;
-      const content = (args as Record<string, unknown>).content as string;
+  // update_diary ツール
+  mcpServer.tool(
+    'update_diary',
+    'Update an existing diary entry',
+    {
+      id: z.number().describe('Diary entry ID'),
+      title: z.string().describe('Diary entry title'),
+      content: z.string().describe('Diary entry content (Markdown)'),
+    },
+    async ({ id, title, content }) => {
       const changes = await updateDiary(id, title, content);
       return {
-        content: [{ type: 'text', text: `Diary entry updated: ${changes} row(s) changed` }],
+        content: [{ type: 'text' as const, text: `Diary entry updated: ${changes} row(s) changed` }],
       };
     }
+  );
 
-    if (name === 'delete_diary') {
-      const id = (args as Record<string, unknown>).id as number;
+  // delete_diary ツール
+  mcpServer.tool(
+    'delete_diary',
+    'Delete a diary entry',
+    {
+      id: z.number().describe('Diary entry ID'),
+    },
+    async ({ id }) => {
       const changes = await deleteDiary(id);
       return {
-        content: [{ type: 'text', text: `Diary entry deleted: ${changes} row(s) deleted` }],
+        content: [{ type: 'text' as const, text: `Diary entry deleted: ${changes} row(s) deleted` }],
       };
     }
+  );
 
-    if (name === 'read_wiki') {
-      const id = (args as Record<string, unknown>).id as number;
+  // read_wiki ツール
+  mcpServer.tool(
+    'read_wiki',
+    'Read a specific wiki page',
+    {
+      id: z.number().describe('Wiki page ID'),
+    },
+    async ({ id }) => {
       const wiki = await getWiki(id);
       if (!wiki) {
         return {
-          content: [{ type: 'text', text: `Wiki page with ID ${id} not found` }],
+          content: [{ type: 'text' as const, text: `Wiki page with ID ${id} not found` }],
           isError: true,
         };
       }
       return {
-        content: [{ type: 'text', text: JSON.stringify(wiki, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(wiki, null, 2) }],
       };
     }
+  );
 
-    if (name === 'write_wiki') {
-      const title = (args as Record<string, unknown>).title as string;
-      const content = (args as Record<string, unknown>).content as string;
+  // write_wiki ツール
+  mcpServer.tool(
+    'write_wiki',
+    'Create a new wiki page',
+    {
+      title: z.string().describe('Wiki page title'),
+      content: z.string().describe('Wiki page content (Markdown)'),
+    },
+    async ({ title, content }) => {
       const id = await createWiki(title, content);
       return {
-        content: [{ type: 'text', text: `Wiki page created with ID: ${id}` }],
+        content: [{ type: 'text' as const, text: `Wiki page created with ID: ${id}` }],
       };
     }
+  );
 
-    if (name === 'update_wiki') {
-      const id = (args as Record<string, unknown>).id as number;
-      const title = (args as Record<string, unknown>).title as string;
-      const content = (args as Record<string, unknown>).content as string;
+  // update_wiki ツール
+  mcpServer.tool(
+    'update_wiki',
+    'Update an existing wiki page',
+    {
+      id: z.number().describe('Wiki page ID'),
+      title: z.string().describe('Wiki page title'),
+      content: z.string().describe('Wiki page content (Markdown)'),
+    },
+    async ({ id, title, content }) => {
       const changes = await updateWiki(id, title, content);
       return {
-        content: [{ type: 'text', text: `Wiki page updated: ${changes} row(s) changed` }],
+        content: [{ type: 'text' as const, text: `Wiki page updated: ${changes} row(s) changed` }],
       };
     }
+  );
 
-    if (name === 'delete_wiki') {
-      const id = (args as Record<string, unknown>).id as number;
+  // delete_wiki ツール
+  mcpServer.tool(
+    'delete_wiki',
+    'Delete a wiki page',
+    {
+      id: z.number().describe('Wiki page ID'),
+    },
+    async ({ id }) => {
       const changes = await deleteWiki(id);
       return {
-        content: [{ type: 'text', text: `Wiki page deleted: ${changes} row(s) deleted` }],
+        content: [{ type: 'text' as const, text: `Wiki page deleted: ${changes} row(s) deleted` }],
       };
     }
+  );
 
-    if (name === 'read_blog') {
-      const id = (args as Record<string, unknown>).id as number;
+  // read_blog ツール
+  mcpServer.tool(
+    'read_blog',
+    'Read a specific blog post',
+    {
+      id: z.number().describe('Blog post ID'),
+    },
+    async ({ id }) => {
       const blog = await getBlog(id);
       if (!blog) {
         return {
-          content: [{ type: 'text', text: `Blog post with ID ${id} not found` }],
+          content: [{ type: 'text' as const, text: `Blog post with ID ${id} not found` }],
           isError: true,
         };
       }
       return {
-        content: [{ type: 'text', text: JSON.stringify(blog, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(blog, null, 2) }],
       };
     }
+  );
 
-    if (name === 'write_blog') {
-      const title = (args as Record<string, unknown>).title as string;
-      const content = (args as Record<string, unknown>).content as string;
-      const contentMarkdown = (args as Record<string, unknown>).content_markdown as string;
-      const contentHtml = (args as Record<string, unknown>).content_html as string;
-      const eyecatch = (args as Record<string, unknown>).eyecatch as string;
-      const permalink = (args as Record<string, unknown>).permalink as string;
-      const site = (args as Record<string, unknown>).site as string;
-      const author = (args as Record<string, unknown>).author as string;
-      const persona = (args as Record<string, unknown>).persona as string;
-
-      const id = await createBlog(title, content, contentMarkdown, contentHtml, eyecatch, permalink, site, author, persona);
+  // write_blog ツール
+  mcpServer.tool(
+    'write_blog',
+    'Create a new blog post',
+    {
+      title: z.string().describe('Blog post title'),
+      content: z.string().describe('Blog post content'),
+      content_markdown: z.string().describe('Blog post markdown content'),
+      content_html: z.string().describe('Blog post HTML content'),
+      eyecatch: z.string().describe('Eyecatch image URL'),
+      permalink: z.string().describe('Blog post permalink'),
+      site: z.string().describe('Blog site name'),
+      author: z.string().describe('Blog post author'),
+      persona: z.string().describe('Blog post persona'),
+    },
+    async ({ title, content, content_markdown, content_html, eyecatch, permalink, site, author, persona }) => {
+      const id = await createBlog(title, content, content_markdown, content_html, eyecatch, permalink, site, author, persona);
       return {
-        content: [{ type: 'text', text: `Blog post created with ID: ${id}` }],
+        content: [{ type: 'text' as const, text: `Blog post created with ID: ${id}` }],
       };
     }
+  );
 
-    if (name === 'update_blog') {
-      const id = (args as Record<string, unknown>).id as number;
-      const title = (args as Record<string, unknown>).title as string;
-      const content = (args as Record<string, unknown>).content as string;
-      const contentMarkdown = (args as Record<string, unknown>).content_markdown as string;
-      const contentHtml = (args as Record<string, unknown>).content_html as string;
-
-      const changes = await updateBlog(id, title, content, contentMarkdown, contentHtml);
+  // update_blog ツール
+  mcpServer.tool(
+    'update_blog',
+    'Update an existing blog post',
+    {
+      id: z.number().describe('Blog post ID'),
+      title: z.string().describe('Blog post title'),
+      content: z.string().describe('Blog post content'),
+      content_markdown: z.string().describe('Blog post markdown content'),
+      content_html: z.string().describe('Blog post HTML content'),
+    },
+    async ({ id, title, content, content_markdown, content_html }) => {
+      const changes = await updateBlog(id, title, content, content_markdown, content_html);
       return {
-        content: [{ type: 'text', text: `Blog post updated: ${changes} row(s) changed` }],
+        content: [{ type: 'text' as const, text: `Blog post updated: ${changes} row(s) changed` }],
       };
     }
+  );
 
-    if (name === 'delete_blog') {
-      const id = (args as Record<string, unknown>).id as number;
+  // delete_blog ツール
+  mcpServer.tool(
+    'delete_blog',
+    'Delete a blog post',
+    {
+      id: z.number().describe('Blog post ID'),
+    },
+    async ({ id }) => {
       const changes = await deleteBlog(id);
       return {
-        content: [{ type: 'text', text: `Blog post deleted: ${changes} row(s) deleted` }],
+        content: [{ type: 'text' as const, text: `Blog post deleted: ${changes} row(s) deleted` }],
       };
     }
+  );
 
-    if (name === 'search_passwords') {
-      const query = (args as Record<string, unknown>).query as string;
+  // search_passwords ツール
+  mcpServer.tool(
+    'search_passwords',
+    'Search password manager entries',
+    {
+      query: z.string().describe('Search query'),
+    },
+    async ({ query }) => {
       const passwords = await searchPasswords(query);
       return {
-        content: [{ type: 'text', text: JSON.stringify(passwords, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(passwords, null, 2) }],
       };
     }
+  );
 
-    return {
-      content: [{ type: 'text', text: `Unknown tool: ${name}` }],
-      isError: true,
-    };
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error executing tool: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      ],
-      isError: true,
-    };
-  }
+  // リソース登録
+  mcpServer.resource(
+    'All Diaries',
+    'private-desk://diaries',
+    async () => {
+      const diaries = await getAllDiaries();
+      return {
+        contents: [{
+          uri: 'private-desk://diaries',
+          mimeType: 'application/json',
+          text: JSON.stringify(diaries, null, 2),
+        }],
+      };
+    }
+  );
+
+  mcpServer.resource(
+    'All Wiki Pages',
+    'private-desk://wikis',
+    async () => {
+      const wikis = await getAllWikis();
+      return {
+        contents: [{
+          uri: 'private-desk://wikis',
+          mimeType: 'application/json',
+          text: JSON.stringify(wikis, null, 2),
+        }],
+      };
+    }
+  );
+
+  mcpServer.resource(
+    'All Blog Posts',
+    'private-desk://blogs',
+    async () => {
+      const blogs = await getAllBlogs();
+      return {
+        contents: [{
+          uri: 'private-desk://blogs',
+          mimeType: 'application/json',
+          text: JSON.stringify(blogs, null, 2),
+        }],
+      };
+    }
+  );
+
+  mcpServer.resource(
+    'Password Entries',
+    'private-desk://passwords',
+    async () => {
+      const passwords = await getAllPasswords();
+      return {
+        contents: [{
+          uri: 'private-desk://passwords',
+          mimeType: 'application/json',
+          text: JSON.stringify(passwords, null, 2),
+        }],
+      };
+    }
+  );
 }
 
-// MCP SDK へのハンドラ登録
-server.setRequestHandler(ListResourcesRequestSchema, async () => listResources());
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => readResource(request.params.uri));
-server.setRequestHandler(ListToolsRequestSchema, async () => listTools());
-server.setRequestHandler(CallToolRequestSchema, async (request) =>
-  callTool(request.params.name, request.params.arguments as Record<string, unknown>)
-);
+// MCP SDK へのハンドラ登録は不要（McpServerが自動処理）
 
 async function handleJsonRpc(request: JsonRpcRequest): Promise<JsonRpcResponse> {
   if (!request || request.jsonrpc !== '2.0' || !request.method) {
@@ -681,29 +390,17 @@ async function handleJsonRpc(request: JsonRpcRequest): Promise<JsonRpcResponse> 
   }
 
   try {
-    switch (request.method) {
-      case 'resources/list':
-        return { jsonrpc: '2.0', id: request.id, result: await listResources() };
-      case 'resources/read': {
-        const uri = request.params?.uri as string | undefined;
-        if (!uri) {
-          return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Missing uri' } };
-        }
-        return { jsonrpc: '2.0', id: request.id, result: await readResource(uri) };
-      }
-      case 'tools/list':
-        return { jsonrpc: '2.0', id: request.id, result: await listTools() };
-      case 'tools/call': {
-        const name = request.params?.name as string | undefined;
-        const args = (request.params?.arguments as Record<string, unknown> | undefined) ?? {};
-        if (!name) {
-          return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Missing tool name' } };
-        }
-        return { jsonrpc: '2.0', id: request.id, result: await callTool(name, args) };
-      }
-      default:
-        return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Method not found' } };
-    }
+    // McpServerの内部サーバーを通じてリクエストを処理
+    const result = await mcpServer.server.request(
+      { method: request.method, params: request.params },
+      {} as any
+    );
+    
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result,
+    };
   } catch (error) {
     return {
       jsonrpc: '2.0',
@@ -776,6 +473,9 @@ function startHttpServer() {
 
 // サーバー起動
 async function main() {
+  // ツールとリソースを登録
+  registerToolsAndResources();
+  
   const mode = process.env.MCP_TRANSPORT_MODE ?? 'stdio';
   
   if (mode === 'http') {
@@ -786,13 +486,13 @@ async function main() {
   } else if (mode === 'both') {
     // Stdio + HTTP 両方
     const transport = new StdioServerTransport();
-    await server.connect(transport);
+    await mcpServer.connect(transport);
     console.error('🚀 Private Desk MCP server started (stdio + HTTP)');
     startHttpServer();
   } else {
     // デフォルト: Stdioのみ
     const transport = new StdioServerTransport();
-    await server.connect(transport);
+    await mcpServer.connect(transport);
     console.error('🚀 Private Desk MCP server started (stdio only)');
   }
 }
