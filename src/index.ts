@@ -6,8 +6,6 @@ import {
   ReadResourceRequestSchema,
   ListToolsRequestSchema,
   CallToolRequestSchema,
-  TextContent,
-  ToolUseBlock,
 } from '@modelcontextprotocol/sdk/types.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
