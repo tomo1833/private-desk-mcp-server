@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer } from 'http';
 import { z } from 'zod';
 
@@ -29,23 +30,6 @@ import {
   getAllPasswords,
 } from './database/queries.js';
 import type { SearchResult } from './types.js';
-
-type JsonRpcRequest = {
-  jsonrpc: '2.0';
-  id: number | string | null;
-  method: string;
-  params?: Record<string, unknown>;
-};
-
-type JsonRpcResponse = {
-  jsonrpc: '2.0';
-  id: number | string | null;
-  result?: unknown;
-  error?: {
-    code: number;
-    message: string;
-  };
-};
 
 // MCP サーバーの初期化
 const mcpServer = new McpServer(
@@ -378,96 +362,43 @@ function registerToolsAndResources() {
   );
 }
 
-// MCP SDK へのハンドラ登録は不要（McpServerが自動処理）
-
-async function handleJsonRpc(request: JsonRpcRequest): Promise<JsonRpcResponse> {
-  if (!request || request.jsonrpc !== '2.0' || !request.method) {
-    return {
-      jsonrpc: '2.0',
-      id: request?.id ?? null,
-      error: { code: -32600, message: 'Invalid Request' },
-    };
-  }
-
-  try {
-    // McpServerの内部サーバーを通じてリクエストを処理
-    const result = await mcpServer.server.request(
-      { method: request.method, params: request.params },
-      {} as any
-    );
-    
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      result,
-    };
-  } catch (error) {
-    return {
-      jsonrpc: '2.0',
-      id: request.id ?? null,
-      error: { code: -32603, message: error instanceof Error ? error.message : 'Internal error' },
-    };
-  }
-}
-
+// HTTPサーバー起動
 function startHttpServer() {
   const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
   const host = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
 
-  const server = createServer(async (req, res) => {
-    if (!req.url) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing URL' }));
-      return;
-    }
+  // StreamableHTTPServerTransportを作成
+  const httpTransport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+  });
 
+  // HTTPサーバーを作成
+  const server = createServer(async (req, res) => {
+    // ヘルスチェックエンドポイント
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('ok');
       return;
     }
 
-    if (req.method !== 'POST' || req.url !== '/mcp') {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not found' }));
+    // MCPエンドポイント
+    if (req.url === '/mcp' || req.url === '/sse') {
+      await httpTransport.handleRequest(req, res);
       return;
     }
 
-    let body = '';
-    const maxSize = 1024 * 1024; // 1MB
-
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > maxSize) {
-        res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Payload too large' }));
-        req.destroy();
-      }
-    });
-
-    req.on('end', async () => {
-      try {
-        const json = JSON.parse(body) as JsonRpcRequest;
-        const response = await handleJsonRpc(json);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(response));
-      } catch (error) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: null,
-            error: { code: -32700, message: error instanceof Error ? error.message : 'Parse error' },
-          })
-        );
-      }
-    });
+    // 404
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
   });
 
-  server.listen(port, host, () => {
-    console.error(`✓ HTTP server listening on http://${host}:${port}`);
-    console.error(`  - Health check: GET http://${host}:${port}/health`);
-    console.error(`  - MCP endpoint: POST http://${host}:${port}/mcp`);
+  // MCPサーバーをHTTPトランスポートに接続
+  mcpServer.connect(httpTransport).then(() => {
+    server.listen(port, host, () => {
+      console.error(`✓ HTTP server listening on http://${host}:${port}`);
+      console.error(`  - Health check: GET http://${host}:${port}/health`);
+      console.error(`  - MCP endpoint: POST http://${host}:${port}/mcp`);
+    });
   });
 }
 
