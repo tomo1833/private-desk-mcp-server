@@ -295,7 +295,7 @@ Invoke-WebRequest -Uri http://localhost:3001/mcp `
 |--------|-------------|------|
 | `PRIVATE_DESK_DB_PATH` | `../private-desk/data/database.sqlite` | データベースファイルのパス |
 | `MCP_TRANSPORT_MODE` | `stdio` | トランスポートモード: `stdio` / `http` / `both` |
-| `MCP_HTTP_HOST` | `127.0.0.1` | HTTPサーバーのホスト |
+| `MCP_HTTP_HOST` | `0.0.0.0` | HTTPサーバーのホスト |
 | `MCP_HTTP_PORT` | `3001` | HTTPサーバーのポート |
 
 ## ライセンス

@@ -714,7 +714,7 @@ async function handleJsonRpc(request: JsonRpcRequest): Promise<JsonRpcResponse> 
 
 function startHttpServer() {
   const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
-  const host = process.env.MCP_HTTP_HOST ?? '127.0.0.1';
+  const host = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
 
   const server = createServer(async (req, res) => {
     if (!req.url) {
