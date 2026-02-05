@@ -105,7 +105,7 @@ curl -X POST http://localhost:3001/mcp \
     "params": {
       "name": "search_private_desk",
       "arguments": {
-        "query": "パスワード",
+        "query": "日報",
         "limit": 5
       }
     }
