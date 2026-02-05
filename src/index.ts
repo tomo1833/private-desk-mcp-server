@@ -8,6 +8,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { createServer } from 'http';
 
 import {
   searchPrivateDesk,
@@ -33,6 +34,23 @@ import {
 } from './database/queries.js';
 import type { SearchResult } from './types.js';
 
+type JsonRpcRequest = {
+  jsonrpc: '2.0';
+  id: number | string | null;
+  method: string;
+  params?: Record<string, unknown>;
+};
+
+type JsonRpcResponse = {
+  jsonrpc: '2.0';
+  id: number | string | null;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+  };
+};
+
 // MCP サーバーの初期化
 const server = new Server(
   {
@@ -48,7 +66,7 @@ const server = new Server(
 );
 
 // リソース定義
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
+async function listResources() {
   return {
     resources: [
       {
@@ -83,12 +101,10 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
       },
     ],
   };
-});
+}
 
 // リソース読み込み
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const { uri } = request.params;
-
+async function readResource(uri: string) {
   try {
     if (uri === 'private-desk://diaries') {
       const diaries = getAllDiaries();
@@ -176,10 +192,10 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       ],
     };
   }
-});
+}
 
 // ツール定義
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+async function listTools() {
   return {
     tools: [
       {
@@ -456,12 +472,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     ],
   };
-});
+}
 
 // ツール実行
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
+async function callTool(name: string, args: Record<string, unknown>) {
   try {
     if (name === 'search_private_desk') {
       const query = (args as Record<string, unknown>).query as string;
@@ -646,13 +660,128 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     };
   }
-});
+}
+
+// MCP SDK へのハンドラ登録
+server.setRequestHandler(ListResourcesRequestSchema, async () => listResources());
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => readResource(request.params.uri));
+server.setRequestHandler(ListToolsRequestSchema, async () => listTools());
+server.setRequestHandler(CallToolRequestSchema, async (request) =>
+  callTool(request.params.name, request.params.arguments as Record<string, unknown>)
+);
+
+async function handleJsonRpc(request: JsonRpcRequest): Promise<JsonRpcResponse> {
+  if (!request || request.jsonrpc !== '2.0' || !request.method) {
+    return {
+      jsonrpc: '2.0',
+      id: request?.id ?? null,
+      error: { code: -32600, message: 'Invalid Request' },
+    };
+  }
+
+  try {
+    switch (request.method) {
+      case 'resources/list':
+        return { jsonrpc: '2.0', id: request.id, result: await listResources() };
+      case 'resources/read': {
+        const uri = request.params?.uri as string | undefined;
+        if (!uri) {
+          return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Missing uri' } };
+        }
+        return { jsonrpc: '2.0', id: request.id, result: await readResource(uri) };
+      }
+      case 'tools/list':
+        return { jsonrpc: '2.0', id: request.id, result: await listTools() };
+      case 'tools/call': {
+        const name = request.params?.name as string | undefined;
+        const args = (request.params?.arguments as Record<string, unknown> | undefined) ?? {};
+        if (!name) {
+          return { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Missing tool name' } };
+        }
+        return { jsonrpc: '2.0', id: request.id, result: await callTool(name, args) };
+      }
+      default:
+        return { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Method not found' } };
+    }
+  } catch (error) {
+    return {
+      jsonrpc: '2.0',
+      id: request.id ?? null,
+      error: { code: -32603, message: error instanceof Error ? error.message : 'Internal error' },
+    };
+  }
+}
+
+function startHttpServer() {
+  const httpEnabled = process.env.MCP_HTTP_ENABLED !== 'false';
+  if (!httpEnabled) {
+    return;
+  }
+
+  const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
+  const host = process.env.MCP_HTTP_HOST ?? '127.0.0.1';
+
+  const server = createServer(async (req, res) => {
+    if (!req.url) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing URL' }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('ok');
+      return;
+    }
+
+    if (req.method !== 'POST' || req.url !== '/mcp') {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not found' }));
+      return;
+    }
+
+    let body = '';
+    const maxSize = 1024 * 1024; // 1MB
+
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > maxSize) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Payload too large' }));
+        req.destroy();
+      }
+    });
+
+    req.on('end', async () => {
+      try {
+        const json = JSON.parse(body) as JsonRpcRequest;
+        const response = await handleJsonRpc(json);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(response));
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32700, message: error instanceof Error ? error.message : 'Parse error' },
+          })
+        );
+      }
+    });
+  });
+
+  server.listen(port, host, () => {
+    console.error(`Private Desk MCP HTTP server listening on http://${host}:${port}`);
+  });
+}
 
 // サーバー起動
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('Private Desk MCP server started');
+  startHttpServer();
 }
 
 main().catch((error) => {
