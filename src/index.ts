@@ -48,12 +48,14 @@ const mcpServer = new McpServer(
 // ツールとリソースの登録
 function registerToolsAndResources() {
   // search_private_desk ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'search_private_desk',
-    'Search across Private Desk data (passwords, diaries, wikis, blogs)',
     {
-      query: z.string().describe('Search query'),
-      limit: z.number().optional().describe('Maximum number of results per table (default: 5)'),
+      description: 'Search across Private Desk data (passwords, diaries, wikis, blogs)',
+      inputSchema: {
+        query: z.string().describe('Search query'),
+        limit: z.number().optional().describe('Maximum number of results per table (default: 5)'),
+      },
     },
     async ({ query, limit }) => {
       const result = await searchPrivateDesk(query, limit ?? 5);
@@ -70,11 +72,13 @@ function registerToolsAndResources() {
   );
 
   // read_diary ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'read_diary',
-    'Read a specific diary entry',
     {
-      id: z.number().describe('Diary entry ID'),
+      description: 'Read a specific diary entry',
+      inputSchema: {
+        id: z.number().describe('Diary entry ID'),
+      },
     },
     async ({ id }) => {
       const diary = await getDiary(id);
@@ -91,12 +95,14 @@ function registerToolsAndResources() {
   );
 
   // write_diary ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'write_diary',
-    'Create a new diary entry',
     {
-      title: z.string().describe('Diary entry title'),
-      content: z.string().describe('Diary entry content (Markdown)'),
+      description: 'Create a new diary entry',
+      inputSchema: {
+        title: z.string().describe('Diary entry title'),
+        content: z.string().describe('Diary entry content (Markdown)'),
+      },
     },
     async ({ title, content }) => {
       const id = await createDiary(title, content);
@@ -107,13 +113,15 @@ function registerToolsAndResources() {
   );
 
   // update_diary ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'update_diary',
-    'Update an existing diary entry',
     {
-      id: z.number().describe('Diary entry ID'),
-      title: z.string().describe('Diary entry title'),
-      content: z.string().describe('Diary entry content (Markdown)'),
+      description: 'Update an existing diary entry',
+      inputSchema: {
+        id: z.number().describe('Diary entry ID'),
+        title: z.string().describe('Diary entry title'),
+        content: z.string().describe('Diary entry content (Markdown)'),
+      },
     },
     async ({ id, title, content }) => {
       const changes = await updateDiary(id, title, content);
@@ -124,11 +132,13 @@ function registerToolsAndResources() {
   );
 
   // delete_diary ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'delete_diary',
-    'Delete a diary entry',
     {
-      id: z.number().describe('Diary entry ID'),
+      description: 'Delete a diary entry',
+      inputSchema: {
+        id: z.number().describe('Diary entry ID'),
+      },
     },
     async ({ id }) => {
       const changes = await deleteDiary(id);
@@ -139,11 +149,13 @@ function registerToolsAndResources() {
   );
 
   // read_wiki ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'read_wiki',
-    'Read a specific wiki page',
     {
-      id: z.number().describe('Wiki page ID'),
+      description: 'Read a specific wiki page',
+      inputSchema: {
+        id: z.number().describe('Wiki page ID'),
+      },
     },
     async ({ id }) => {
       const wiki = await getWiki(id);
@@ -160,12 +172,14 @@ function registerToolsAndResources() {
   );
 
   // write_wiki ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'write_wiki',
-    'Create a new wiki page',
     {
-      title: z.string().describe('Wiki page title'),
-      content: z.string().describe('Wiki page content (Markdown)'),
+      description: 'Create a new wiki page',
+      inputSchema: {
+        title: z.string().describe('Wiki page title'),
+        content: z.string().describe('Wiki page content (Markdown)'),
+      },
     },
     async ({ title, content }) => {
       const id = await createWiki(title, content);
@@ -176,13 +190,15 @@ function registerToolsAndResources() {
   );
 
   // update_wiki ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'update_wiki',
-    'Update an existing wiki page',
     {
-      id: z.number().describe('Wiki page ID'),
-      title: z.string().describe('Wiki page title'),
-      content: z.string().describe('Wiki page content (Markdown)'),
+      description: 'Update an existing wiki page',
+      inputSchema: {
+        id: z.number().describe('Wiki page ID'),
+        title: z.string().describe('Wiki page title'),
+        content: z.string().describe('Wiki page content (Markdown)'),
+      },
     },
     async ({ id, title, content }) => {
       const changes = await updateWiki(id, title, content);
@@ -193,11 +209,13 @@ function registerToolsAndResources() {
   );
 
   // delete_wiki ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'delete_wiki',
-    'Delete a wiki page',
     {
-      id: z.number().describe('Wiki page ID'),
+      description: 'Delete a wiki page',
+      inputSchema: {
+        id: z.number().describe('Wiki page ID'),
+      },
     },
     async ({ id }) => {
       const changes = await deleteWiki(id);
@@ -208,11 +226,13 @@ function registerToolsAndResources() {
   );
 
   // read_blog ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'read_blog',
-    'Read a specific blog post',
     {
-      id: z.number().describe('Blog post ID'),
+      description: 'Read a specific blog post',
+      inputSchema: {
+        id: z.number().describe('Blog post ID'),
+      },
     },
     async ({ id }) => {
       const blog = await getBlog(id);
@@ -229,19 +249,21 @@ function registerToolsAndResources() {
   );
 
   // write_blog ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'write_blog',
-    'Create a new blog post',
     {
-      title: z.string().describe('Blog post title'),
-      content: z.string().describe('Blog post content'),
-      content_markdown: z.string().describe('Blog post markdown content'),
-      content_html: z.string().describe('Blog post HTML content'),
-      eyecatch: z.string().describe('Eyecatch image URL'),
-      permalink: z.string().describe('Blog post permalink'),
-      site: z.string().describe('Blog site name'),
-      author: z.string().describe('Blog post author'),
-      persona: z.string().describe('Blog post persona'),
+      description: 'Create a new blog post',
+      inputSchema: {
+        title: z.string().describe('Blog post title'),
+        content: z.string().describe('Blog post content'),
+        content_markdown: z.string().describe('Blog post markdown content'),
+        content_html: z.string().describe('Blog post HTML content'),
+        eyecatch: z.string().describe('Eyecatch image URL'),
+        permalink: z.string().describe('Blog post permalink'),
+        site: z.string().describe('Blog site name'),
+        author: z.string().describe('Blog post author'),
+        persona: z.string().describe('Blog post persona'),
+      },
     },
     async ({ title, content, content_markdown, content_html, eyecatch, permalink, site, author, persona }) => {
       const id = await createBlog(title, content, content_markdown, content_html, eyecatch, permalink, site, author, persona);
@@ -252,15 +274,17 @@ function registerToolsAndResources() {
   );
 
   // update_blog ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'update_blog',
-    'Update an existing blog post',
     {
-      id: z.number().describe('Blog post ID'),
-      title: z.string().describe('Blog post title'),
-      content: z.string().describe('Blog post content'),
-      content_markdown: z.string().describe('Blog post markdown content'),
-      content_html: z.string().describe('Blog post HTML content'),
+      description: 'Update an existing blog post',
+      inputSchema: {
+        id: z.number().describe('Blog post ID'),
+        title: z.string().describe('Blog post title'),
+        content: z.string().describe('Blog post content'),
+        content_markdown: z.string().describe('Blog post markdown content'),
+        content_html: z.string().describe('Blog post HTML content'),
+      },
     },
     async ({ id, title, content, content_markdown, content_html }) => {
       const changes = await updateBlog(id, title, content, content_markdown, content_html);
@@ -271,11 +295,13 @@ function registerToolsAndResources() {
   );
 
   // delete_blog ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'delete_blog',
-    'Delete a blog post',
     {
-      id: z.number().describe('Blog post ID'),
+      description: 'Delete a blog post',
+      inputSchema: {
+        id: z.number().describe('Blog post ID'),
+      },
     },
     async ({ id }) => {
       const changes = await deleteBlog(id);
@@ -286,11 +312,13 @@ function registerToolsAndResources() {
   );
 
   // search_passwords ツール
-  mcpServer.tool(
+  mcpServer.registerTool(
     'search_passwords',
-    'Search password manager entries',
     {
-      query: z.string().describe('Search query'),
+      description: 'Search password manager entries',
+      inputSchema: {
+        query: z.string().describe('Search query'),
+      },
     },
     async ({ query }) => {
       const passwords = await searchPasswords(query);
