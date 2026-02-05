@@ -1,0 +1,40 @@
+{
+  "name": "private-desk-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Private Desk - provides access to search, diary, wiki, blog and password data",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "private-desk-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "node --loader ts-node/esm src/index.ts",
+    "start": "node dist/index.js",
+    "test": "node --test --loader ts-node/esm src/**/*.test.ts",
+    "install:pi": "npm install --build-from-source"
+  },
+  "keywords": [
+    "mcp",
+    "private-desk",
+    "sqlite",
+    "search"
+  ],
+  "author": "tomo1833",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "better-sqlite3": "^9.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
+  }
+}
