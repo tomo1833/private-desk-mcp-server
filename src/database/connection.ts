@@ -1,26 +1,48 @@
-import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let db: Database.Database | null = null;
+let db: any | null = null;
+let Database: any = null;
+
+/**
+ * better-sqlite3 を動的にロード
+ */
+async function loadDatabase() {
+  if (Database) return Database;
+  try {
+    const module = await import('better-sqlite3');
+    Database = module.default;
+    return Database;
+  } catch (error) {
+    console.warn('⚠️  better-sqlite3 is not installed. Database features are disabled.');
+    console.warn('   To enable database features: npm install better-sqlite3');
+    return null;
+  }
+}
 
 /**
  * データベース接続を取得
  */
-export function getDatabase(): Database.Database {
+export async function getDatabase(): Promise<any> {
   if (db) {
     return db;
+  }
+
+  const DatabaseClass = await loadDatabase();
+  if (!DatabaseClass) {
+    throw new Error('Database module (better-sqlite3) is not available');
   }
 
   const dbPath = process.env.PRIVATE_DESK_DB_PATH || 
     path.resolve(__dirname, '../../private-desk/data/database.sqlite');
 
   try {
-    db = new Database(dbPath, { readonly: false });
+    db = new DatabaseClass(dbPath, { readonly: false });
     // Foreign keys を有効化
     db.pragma('foreign_keys = ON');
+    console.error(`✓ Connected to database: ${dbPath}`);
     return db;
   } catch (error) {
     console.error(`Failed to connect to database at ${dbPath}:`, error);
@@ -31,8 +53,8 @@ export function getDatabase(): Database.Database {
 /**
  * 複数レコードを取得
  */
-export function runSelect<T>(sql: string, params: (string | number | null | boolean)[] = []): T[] {
-  const database = getDatabase();
+export async function runSelect<T>(sql: string, params: (string | number | null | boolean)[] = []): Promise<T[]> {
+  const database = await getDatabase();
   const stmt = database.prepare(sql);
   return stmt.all(...params) as T[];
 }
@@ -40,8 +62,8 @@ export function runSelect<T>(sql: string, params: (string | number | null | bool
 /**
  * 単一レコードを取得
  */
-export function runGet<T>(sql: string, params: (string | number | null | boolean)[] = []): T | undefined {
-  const database = getDatabase();
+export async function runGet<T>(sql: string, params: (string | number | null | boolean)[] = []): Promise<T | undefined> {
+  const database = await getDatabase();
   const stmt = database.prepare(sql);
   return stmt.get(...params) as T | undefined;
 }
@@ -49,8 +71,8 @@ export function runGet<T>(sql: string, params: (string | number | null | boolean
 /**
  * 更新・挿入・削除を実行（ID を返す）
  */
-export function runInsert(sql: string, params: (string | number | null | boolean)[] = []): number {
-  const database = getDatabase();
+export async function runInsert(sql: string, params: (string | number | null | boolean)[] = []): Promise<number> {
+  const database = await getDatabase();
   const stmt = database.prepare(sql);
   const result = stmt.run(...params);
   return typeof result.lastInsertRowid === 'number' ? result.lastInsertRowid : -1;
@@ -59,8 +81,8 @@ export function runInsert(sql: string, params: (string | number | null | boolean
 /**
  * 更新・挿入・削除を実行（影響行数を返す）
  */
-export function runExecute(sql: string, params: (string | number | null | boolean)[] = []): number {
-  const database = getDatabase();
+export async function runExecute(sql: string, params: (string | number | null | boolean)[] = []): Promise<number> {
+  const database = await getDatabase();
   const stmt = database.prepare(sql);
   const result = stmt.run(...params);
   return result.changes;
@@ -69,8 +91,8 @@ export function runExecute(sql: string, params: (string | number | null | boolea
 /**
  * トランザクションを実行
  */
-export function runTransaction<T>(fn: () => T): T {
-  const database = getDatabase();
+export async function runTransaction<T>(fn: () => T): Promise<T> {
+  const database = await getDatabase();
   return database.transaction(fn)();
 }
 

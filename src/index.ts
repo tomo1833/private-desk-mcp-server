@@ -107,7 +107,7 @@ async function listResources() {
 async function readResource(uri: string) {
   try {
     if (uri === 'private-desk://diaries') {
-      const diaries = getAllDiaries();
+      const diaries = await getAllDiaries();
       return {
         contents: [
           {
@@ -120,7 +120,7 @@ async function readResource(uri: string) {
     }
 
     if (uri === 'private-desk://wikis') {
-      const wikis = getAllWikis();
+      const wikis = await getAllWikis();
       return {
         contents: [
           {
@@ -133,7 +133,7 @@ async function readResource(uri: string) {
     }
 
     if (uri === 'private-desk://blogs') {
-      const blogs = getAllBlogs();
+      const blogs = await getAllBlogs();
       return {
         contents: [
           {
@@ -146,7 +146,7 @@ async function readResource(uri: string) {
     }
 
     if (uri === 'private-desk://passwords') {
-      const passwords = getAllPasswords();
+      const passwords = await getAllPasswords();
       return {
         contents: [
           {
@@ -160,7 +160,7 @@ async function readResource(uri: string) {
 
     if (uri.startsWith('private-desk://search?q=')) {
       const query = decodeURIComponent(uri.replace('private-desk://search?q=', ''));
-      const result = searchPrivateDesk(query, 10);
+      const result = await searchPrivateDesk(query, 10);
       return {
         contents: [
           {
@@ -481,7 +481,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
       const query = (args as Record<string, unknown>).query as string;
       const limit = (args as Record<string, unknown>).limit as number | undefined || 5;
 
-      const result = searchPrivateDesk(query, limit);
+      const result = await searchPrivateDesk(query, limit);
       const context = buildSearchContext(result);
 
       const summary = buildLocalSummary(result);
@@ -505,7 +505,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 
     if (name === 'read_diary') {
       const id = (args as Record<string, unknown>).id as number;
-      const diary = getDiary(id);
+      const diary = await getDiary(id);
       if (!diary) {
         return {
           content: [{ type: 'text', text: `Diary entry with ID ${id} not found` }],
@@ -520,7 +520,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
     if (name === 'write_diary') {
       const title = (args as Record<string, unknown>).title as string;
       const content = (args as Record<string, unknown>).content as string;
-      const id = createDiary(title, content);
+      const id = await createDiary(title, content);
       return {
         content: [{ type: 'text', text: `Diary entry created with ID: ${id}` }],
       };
@@ -530,7 +530,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
       const id = (args as Record<string, unknown>).id as number;
       const title = (args as Record<string, unknown>).title as string;
       const content = (args as Record<string, unknown>).content as string;
-      const changes = updateDiary(id, title, content);
+      const changes = await updateDiary(id, title, content);
       return {
         content: [{ type: 'text', text: `Diary entry updated: ${changes} row(s) changed` }],
       };
@@ -538,7 +538,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 
     if (name === 'delete_diary') {
       const id = (args as Record<string, unknown>).id as number;
-      const changes = deleteDiary(id);
+      const changes = await deleteDiary(id);
       return {
         content: [{ type: 'text', text: `Diary entry deleted: ${changes} row(s) deleted` }],
       };
@@ -546,7 +546,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 
     if (name === 'read_wiki') {
       const id = (args as Record<string, unknown>).id as number;
-      const wiki = getWiki(id);
+      const wiki = await getWiki(id);
       if (!wiki) {
         return {
           content: [{ type: 'text', text: `Wiki page with ID ${id} not found` }],
@@ -561,7 +561,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
     if (name === 'write_wiki') {
       const title = (args as Record<string, unknown>).title as string;
       const content = (args as Record<string, unknown>).content as string;
-      const id = createWiki(title, content);
+      const id = await createWiki(title, content);
       return {
         content: [{ type: 'text', text: `Wiki page created with ID: ${id}` }],
       };
@@ -571,7 +571,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
       const id = (args as Record<string, unknown>).id as number;
       const title = (args as Record<string, unknown>).title as string;
       const content = (args as Record<string, unknown>).content as string;
-      const changes = updateWiki(id, title, content);
+      const changes = await updateWiki(id, title, content);
       return {
         content: [{ type: 'text', text: `Wiki page updated: ${changes} row(s) changed` }],
       };
@@ -579,7 +579,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 
     if (name === 'delete_wiki') {
       const id = (args as Record<string, unknown>).id as number;
-      const changes = deleteWiki(id);
+      const changes = await deleteWiki(id);
       return {
         content: [{ type: 'text', text: `Wiki page deleted: ${changes} row(s) deleted` }],
       };
@@ -587,7 +587,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 
     if (name === 'read_blog') {
       const id = (args as Record<string, unknown>).id as number;
-      const blog = getBlog(id);
+      const blog = await getBlog(id);
       if (!blog) {
         return {
           content: [{ type: 'text', text: `Blog post with ID ${id} not found` }],
@@ -610,7 +610,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
       const author = (args as Record<string, unknown>).author as string;
       const persona = (args as Record<string, unknown>).persona as string;
 
-      const id = createBlog(title, content, contentMarkdown, contentHtml, eyecatch, permalink, site, author, persona);
+      const id = await createBlog(title, content, contentMarkdown, contentHtml, eyecatch, permalink, site, author, persona);
       return {
         content: [{ type: 'text', text: `Blog post created with ID: ${id}` }],
       };
@@ -623,7 +623,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
       const contentMarkdown = (args as Record<string, unknown>).content_markdown as string;
       const contentHtml = (args as Record<string, unknown>).content_html as string;
 
-      const changes = updateBlog(id, title, content, contentMarkdown, contentHtml);
+      const changes = await updateBlog(id, title, content, contentMarkdown, contentHtml);
       return {
         content: [{ type: 'text', text: `Blog post updated: ${changes} row(s) changed` }],
       };
@@ -631,7 +631,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 
     if (name === 'delete_blog') {
       const id = (args as Record<string, unknown>).id as number;
-      const changes = deleteBlog(id);
+      const changes = await deleteBlog(id);
       return {
         content: [{ type: 'text', text: `Blog post deleted: ${changes} row(s) deleted` }],
       };
@@ -639,7 +639,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 
     if (name === 'search_passwords') {
       const query = (args as Record<string, unknown>).query as string;
-      const passwords = searchPasswords(query);
+      const passwords = await searchPasswords(query);
       return {
         content: [{ type: 'text', text: JSON.stringify(passwords, null, 2) }],
       };
@@ -713,11 +713,6 @@ async function handleJsonRpc(request: JsonRpcRequest): Promise<JsonRpcResponse> 
 }
 
 function startHttpServer() {
-  const httpEnabled = process.env.MCP_HTTP_ENABLED !== 'false';
-  if (!httpEnabled) {
-    return;
-  }
-
   const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
   const host = process.env.MCP_HTTP_HOST ?? '127.0.0.1';
 
@@ -772,19 +767,36 @@ function startHttpServer() {
   });
 
   server.listen(port, host, () => {
-    console.error(`Private Desk MCP HTTP server listening on http://${host}:${port}`);
+    console.error(`✓ HTTP server listening on http://${host}:${port}`);
+    console.error(`  - Health check: GET http://${host}:${port}/health`);
+    console.error(`  - MCP endpoint: POST http://${host}:${port}/mcp`);
   });
 }
 
 // サーバー起動
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('Private Desk MCP server started');
-  startHttpServer();
+  const mode = process.env.MCP_TRANSPORT_MODE ?? 'stdio';
+  
+  if (mode === 'http') {
+    // HTTPモードのみ
+    console.error('🚀 Private Desk MCP server starting in HTTP mode...');
+    startHttpServer();
+    // HTTPモードではプロセスを維持（サーバーが動いている限り）
+  } else if (mode === 'both') {
+    // Stdio + HTTP 両方
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error('🚀 Private Desk MCP server started (stdio + HTTP)');
+    startHttpServer();
+  } else {
+    // デフォルト: Stdioのみ
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error('🚀 Private Desk MCP server started (stdio only)');
+  }
 }
 
 main().catch((error) => {
-  console.error('Fatal error:', error);
+  console.error('❌ Fatal error:', error);
   process.exit(1);
 });

@@ -50,15 +50,67 @@ npm run build
 
 ### 4. 起動
 
+#### Stdioモード（デフォルト、MCPクライアント用）
 ```bash
-# 直接実行（stdio トランスポート）
 npm start
+```
 
-# または開発モード
-npm run dev
+#### HTTPモード
+```bash
+npm run start:http
+# または
+MCP_TRANSPORT_MODE=http npm start
+```
+
+#### 両方を有効にする
+```bash
+npm run start:both
+# または
+MCP_TRANSPORT_MODE=both npm start
 ```
 
 ## 使用方法
+
+### HTTPサーバーとして使用する
+
+HTTPモードで起動すると、REST API経由でMCPサーバーにアクセスできます。
+
+#### エンドポイント
+
+- `GET /health` - ヘルスチェック
+- `POST /mcp` - JSON-RPCリクエスト
+
+#### リクエスト例
+
+```bash
+# ヘルスチェック
+curl http://localhost:3001/health
+
+# ツール一覧を取得
+curl -X POST http://localhost:3001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/list"
+  }'
+
+# 検索を実行
+curl -X POST http://localhost:3001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "search_private_desk",
+      "arguments": {
+        "query": "パスワード",
+        "limit": 5
+      }
+    }
+  }'
+```
 
 ### local-llm-chat から呼び出す
 
@@ -188,6 +240,63 @@ Wiki ページを読み込みます。
 - Node.js のバージョンが 18 以上か確認
 - `npm install` を実行して依存関係を再インストール
 - コンソールのエラーメッセージを確認
+
+### Windows環境でbetter-sqlite3のインストールに失敗する
+
+better-sqlite3はネイティブモジュールで、Windowsではビルドツールが必要です。
+
+#### 解決方法1: プリビルドバイナリを使用
+```bash
+npm install --ignore-scripts
+```
+
+#### 解決方法2: ビルドツールをインストール
+```bash
+# Visual Studio Build Toolsをインストール
+# https://visualstudio.microsoft.com/downloads/
+# 「Desktop development with C++」ワークロードを選択
+```
+
+#### 解決方法3: データベース機能なしでHTTPサーバーのみ使用
+```bash
+# better-sqlite3がインストールされていなくても、HTTPサーバーは起動します
+# ただし、データベース機能を呼び出すとエラーになります
+MCP_TRANSPORT_MODE=http npm start
+```
+
+### HTTPサーバーの動作確認
+
+```bash
+# HTTPモードで起動
+npm run start:http
+
+# 別のターミナルでヘルスチェック（PowerShell）
+Invoke-WebRequest -Uri http://localhost:3001/health
+
+# または curl (Git Bash / WSL)
+curl http://localhost:3001/health
+
+# JSON-RPCリクエストのテスト（PowerShell）
+$body = @{
+  jsonrpc = "2.0"
+  id = 1
+  method = "tools/list"
+} | ConvertTo-Json
+
+Invoke-WebRequest -Uri http://localhost:3001/mcp `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+## 環境変数リファレンス
+
+| 変数名 | デフォルト値 | 説明 |
+|--------|-------------|------|
+| `PRIVATE_DESK_DB_PATH` | `../private-desk/data/database.sqlite` | データベースファイルのパス |
+| `MCP_TRANSPORT_MODE` | `stdio` | トランスポートモード: `stdio` / `http` / `both` |
+| `MCP_HTTP_HOST` | `127.0.0.1` | HTTPサーバーのホスト |
+| `MCP_HTTP_PORT` | `3001` | HTTPサーバーのポート |
 
 ## ライセンス
 

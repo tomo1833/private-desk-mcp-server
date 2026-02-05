@@ -12,25 +12,25 @@ const clipText = (text: string): string => {
 /**
  * 統合検索を実行
  */
-export function searchPrivateDesk(query: string, limit: number = DEFAULT_LIMIT): SearchResult {
+export async function searchPrivateDesk(query: string, limit: number = DEFAULT_LIMIT): Promise<SearchResult> {
   const like = `%${query}%`;
 
-  const passwords = runSelect<Password>(
+  const passwords = await runSelect<Password>(
     'SELECT * FROM password_manager WHERE site_name LIKE ? OR site_url LIKE ? OR login_id LIKE ? OR email LIKE ? OR memo LIKE ? ORDER BY updated_at DESC LIMIT ?',
     [like, like, like, like, like, limit]
   );
 
-  const diaries = runSelect<Diary>(
+  const diaries = await runSelect<Diary>(
     'SELECT * FROM diary WHERE title LIKE ? OR content LIKE ? ORDER BY created_at DESC LIMIT ?',
     [like, like, limit]
   );
 
-  const wikis = runSelect<Wiki>(
+  const wikis = await runSelect<Wiki>(
     'SELECT * FROM wiki WHERE title LIKE ? OR content LIKE ? ORDER BY created_at DESC LIMIT ?',
     [like, like, limit]
   );
 
-  const blogs = runSelect<Blog>(
+  const blogs = await runSelect<Blog>(
     'SELECT * FROM blog WHERE title LIKE ? OR content LIKE ? ORDER BY created_at DESC LIMIT ?',
     [like, like, limit]
   );
@@ -84,8 +84,8 @@ export function buildSearchContext(result: SearchResult): string {
 /**
  * 日報を取得
  */
-export function getDiary(id: number): Diary | undefined {
-  return runGet<Diary>(
+export async function getDiary(id: number): Promise<Diary | undefined> {
+  return await runGet<Diary>(
     'SELECT * FROM diary WHERE id = ?',
     [id]
   );
@@ -94,8 +94,8 @@ export function getDiary(id: number): Diary | undefined {
 /**
  * すべての日報を取得
  */
-export function getAllDiaries(): Diary[] {
-  return runSelect<Diary>(
+export async function getAllDiaries(): Promise<Diary[]> {
+  return await runSelect<Diary>(
     'SELECT * FROM diary ORDER BY created_at DESC'
   );
 }
@@ -103,8 +103,8 @@ export function getAllDiaries(): Diary[] {
 /**
  * 新規日報を作成
  */
-export function createDiary(title: string, content: string): number {
-  return runInsert(
+export async function createDiary(title: string, content: string): Promise<number> {
+  return await runInsert(
     'INSERT INTO diary (title, content, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
     [title, content]
   );
@@ -113,8 +113,8 @@ export function createDiary(title: string, content: string): number {
 /**
  * 日報を更新
  */
-export function updateDiary(id: number, title: string, content: string): number {
-  return runExecute(
+export async function updateDiary(id: number, title: string, content: string): Promise<number> {
+  return await runExecute(
     'UPDATE diary SET title = ?, content = ? WHERE id = ?',
     [title, content, id]
   );
@@ -123,8 +123,8 @@ export function updateDiary(id: number, title: string, content: string): number 
 /**
  * 日報を削除
  */
-export function deleteDiary(id: number): number {
-  return runExecute(
+export async function deleteDiary(id: number): Promise<number> {
+  return await runExecute(
     'DELETE FROM diary WHERE id = ?',
     [id]
   );
@@ -133,8 +133,8 @@ export function deleteDiary(id: number): number {
 /**
  * Wiki ページを取得
  */
-export function getWiki(id: number): Wiki | undefined {
-  return runGet<Wiki>(
+export async function getWiki(id: number): Promise<Wiki | undefined> {
+  return await runGet<Wiki>(
     'SELECT * FROM wiki WHERE id = ?',
     [id]
   );
@@ -143,8 +143,8 @@ export function getWiki(id: number): Wiki | undefined {
 /**
  * すべての Wiki ページを取得
  */
-export function getAllWikis(): Wiki[] {
-  return runSelect<Wiki>(
+export async function getAllWikis(): Promise<Wiki[]> {
+  return await runSelect<Wiki>(
     'SELECT * FROM wiki ORDER BY created_at DESC'
   );
 }
@@ -152,8 +152,8 @@ export function getAllWikis(): Wiki[] {
 /**
  * 新規 Wiki ページを作成
  */
-export function createWiki(title: string, content: string): number {
-  return runInsert(
+export async function createWiki(title: string, content: string): Promise<number> {
+  return await runInsert(
     'INSERT INTO wiki (title, content, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
     [title, content]
   );
@@ -162,8 +162,8 @@ export function createWiki(title: string, content: string): number {
 /**
  * Wiki ページを更新
  */
-export function updateWiki(id: number, title: string, content: string): number {
-  return runExecute(
+export async function updateWiki(id: number, title: string, content: string): Promise<number> {
+  return await runExecute(
     'UPDATE wiki SET title = ?, content = ? WHERE id = ?',
     [title, content, id]
   );
@@ -172,8 +172,8 @@ export function updateWiki(id: number, title: string, content: string): number {
 /**
  * Wiki ページを削除
  */
-export function deleteWiki(id: number): number {
-  return runExecute(
+export async function deleteWiki(id: number): Promise<number> {
+  return await runExecute(
     'DELETE FROM wiki WHERE id = ?',
     [id]
   );
@@ -182,8 +182,8 @@ export function deleteWiki(id: number): number {
 /**
  * ブログ記事を取得
  */
-export function getBlog(id: number): Blog | undefined {
-  return runGet<Blog>(
+export async function getBlog(id: number): Promise<Blog | undefined> {
+  return await runGet<Blog>(
     'SELECT * FROM blog WHERE id = ?',
     [id]
   );
@@ -192,8 +192,8 @@ export function getBlog(id: number): Blog | undefined {
 /**
  * すべてのブログ記事を取得
  */
-export function getAllBlogs(): Blog[] {
-  return runSelect<Blog>(
+export async function getAllBlogs(): Promise<Blog[]> {
+  return await runSelect<Blog>(
     'SELECT * FROM blog ORDER BY created_at DESC'
   );
 }
@@ -201,7 +201,7 @@ export function getAllBlogs(): Blog[] {
 /**
  * 新規ブログ記事を作成
  */
-export function createBlog(
+export async function createBlog(
   title: string,
   content: string,
   contentMarkdown: string,
@@ -211,8 +211,8 @@ export function createBlog(
   site: string,
   author: string,
   persona: string
-): number {
-  return runInsert(
+): Promise<number> {
+  return await runInsert(
     'INSERT INTO blog (title, content, content_markdown, content_html, eyecatch, permalink, site, author, persona, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
     [title, content, contentMarkdown, contentHtml, eyecatch, permalink, site, author, persona]
   );
@@ -221,14 +221,14 @@ export function createBlog(
 /**
  * ブログ記事を更新
  */
-export function updateBlog(
+export async function updateBlog(
   id: number,
   title: string,
   content: string,
   contentMarkdown: string,
   contentHtml: string
-): number {
-  return runExecute(
+): Promise<number> {
+  return await runExecute(
     'UPDATE blog SET title = ?, content = ?, content_markdown = ?, content_html = ? WHERE id = ?',
     [title, content, contentMarkdown, contentHtml, id]
   );
@@ -237,8 +237,8 @@ export function updateBlog(
 /**
  * ブログ記事を削除
  */
-export function deleteBlog(id: number): number {
-  return runExecute(
+export async function deleteBlog(id: number): Promise<number> {
+  return await runExecute(
     'DELETE FROM blog WHERE id = ?',
     [id]
   );
@@ -247,9 +247,9 @@ export function deleteBlog(id: number): number {
 /**
  * パスワード情報を検索
  */
-export function searchPasswords(query: string): Password[] {
+export async function searchPasswords(query: string): Promise<Password[]> {
   const like = `%${query}%`;
-  return runSelect<Password>(
+  return await runSelect<Password>(
     'SELECT * FROM password_manager WHERE site_name LIKE ? OR site_url LIKE ? OR login_id LIKE ? OR email LIKE ? OR memo LIKE ? ORDER BY updated_at DESC LIMIT 10',
     [like, like, like, like, like]
   );
@@ -258,8 +258,8 @@ export function searchPasswords(query: string): Password[] {
 /**
  * パスワード情報を取得（メモと基本情報のみ）
  */
-export function getPassword(id: number): Password | undefined {
-  return runGet<Password>(
+export async function getPassword(id: number): Promise<Password | undefined> {
+  return await runGet<Password>(
     'SELECT id, site_name, site_url, memo, category, updated_at FROM password_manager WHERE id = ?',
     [id]
   );
@@ -268,8 +268,8 @@ export function getPassword(id: number): Password | undefined {
 /**
  * すべてのパスワード情報を取得（セキュリティのため制限情報のみ）
  */
-export function getAllPasswords(): Array<Omit<Password, 'password' | 'login_id'>> {
-  return runSelect<Omit<Password, 'password' | 'login_id'>>(
+export async function getAllPasswords(): Promise<Array<Omit<Password, 'password' | 'login_id'>>> {
+  return await runSelect<Omit<Password, 'password' | 'login_id'>>(
     'SELECT id, site_name, site_url, email, memo, category, created_at, updated_at FROM password_manager ORDER BY updated_at DESC'
   );
 }
