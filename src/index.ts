@@ -398,6 +398,7 @@ function startHttpServer() {
   // StreamableHTTPServerTransportを作成
   const httpTransport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => crypto.randomUUID(),
+    enableJsonResponse: true, // JSON形式のレスポンスを有効化（SSEとAcceptヘッダー要件を緩和）
   });
 
   // HTTPサーバーを作成
