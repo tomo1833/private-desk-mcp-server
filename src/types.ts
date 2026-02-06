@@ -1,18 +1,5 @@
 // Type definitions for Private Desk data
 
-export interface Password {
-  id: number;
-  site_name: string;
-  site_url: string;
-  login_id?: string;
-  password: string;
-  email?: string;
-  memo?: string;
-  category?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Diary {
   id: number;
   title: string;
@@ -63,7 +50,6 @@ export interface Expense {
 }
 
 export interface SearchResult {
-  passwords: Password[];
   diaries: Diary[];
   wikis: Wiki[];
   blogs: Blog[];

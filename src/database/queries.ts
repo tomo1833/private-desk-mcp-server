@@ -1,5 +1,5 @@
 import { runSelect, runGet, runInsert, runExecute } from './connection.js';
-import type { Password, Diary, Wiki, Blog, SearchResult } from '../types.js';
+import type { Diary, Wiki, Blog, SearchResult } from '../types.js';
 
 const MAX_SNIPPET_LENGTH = 320;
 const DEFAULT_LIMIT = 5;
@@ -14,11 +14,6 @@ const clipText = (text: string): string => {
  */
 export async function searchPrivateDesk(query: string, limit: number = DEFAULT_LIMIT): Promise<SearchResult> {
   const like = `%${query}%`;
-
-  const passwords = await runSelect<Password>(
-    'SELECT * FROM password_manager WHERE site_name LIKE ? OR site_url LIKE ? OR login_id LIKE ? OR email LIKE ? OR memo LIKE ? ORDER BY updated_at DESC LIMIT ?',
-    [like, like, like, like, like, limit]
-  );
 
   const diaries = await runSelect<Diary>(
     'SELECT * FROM diary WHERE title LIKE ? OR content LIKE ? ORDER BY created_at DESC LIMIT ?',
@@ -35,7 +30,7 @@ export async function searchPrivateDesk(query: string, limit: number = DEFAULT_L
     [like, like, limit]
   );
 
-  return { passwords, diaries, wikis, blogs };
+  return { diaries, wikis, blogs };
 }
 
 /**
@@ -50,7 +45,6 @@ export function buildLocalSummary(result: SearchResult): string {
   };
 
   return [
-    buildLine('パスワード', result.passwords.map((item) => item.site_name)),
     buildLine('日報', result.diaries.map((item) => item.title)),
     buildLine('Wiki', result.wikis.map((item) => item.title)),
     buildLine('ブログ', result.blogs.map((item) => item.title)),
@@ -66,15 +60,11 @@ export function buildSearchContext(result: SearchResult): string {
     return `${label}:\n${items.map((item) => `- ${item}`).join('\n')}`;
   };
 
-  const passwordLines = result.passwords.map(
-    (item) => `${item.site_name} (${item.site_url}) メモ: ${clipText(item.memo ?? '')}`.trim()
-  );
   const diaryLines = result.diaries.map((item) => `${item.title} - ${clipText(item.content)}`);
   const wikiLines = result.wikis.map((item) => `${item.title} - ${clipText(item.content)}`);
   const blogLines = result.blogs.map((item) => `${item.title} - ${clipText(item.content)}`);
 
   return [
-    formatList('パスワード管理', passwordLines),
     formatList('日報', diaryLines),
     formatList('Wiki', wikiLines),
     formatList('ブログ', blogLines),
@@ -88,15 +78,6 @@ export async function getDiary(id: number): Promise<Diary | undefined> {
   return await runGet<Diary>(
     'SELECT * FROM diary WHERE id = ?',
     [id]
-  );
-}
-
-/**
- * すべての日報を取得
- */
-export async function getAllDiaries(): Promise<Diary[]> {
-  return await runSelect<Diary>(
-    'SELECT * FROM diary ORDER BY created_at DESC'
   );
 }
 
@@ -141,15 +122,6 @@ export async function getWiki(id: number): Promise<Wiki | undefined> {
 }
 
 /**
- * すべての Wiki ページを取得
- */
-export async function getAllWikis(): Promise<Wiki[]> {
-  return await runSelect<Wiki>(
-    'SELECT * FROM wiki ORDER BY created_at DESC'
-  );
-}
-
-/**
  * 新規 Wiki ページを作成
  */
 export async function createWiki(title: string, content: string): Promise<number> {
@@ -186,15 +158,6 @@ export async function getBlog(id: number): Promise<Blog | undefined> {
   return await runGet<Blog>(
     'SELECT * FROM blog WHERE id = ?',
     [id]
-  );
-}
-
-/**
- * すべてのブログ記事を取得
- */
-export async function getAllBlogs(): Promise<Blog[]> {
-  return await runSelect<Blog>(
-    'SELECT * FROM blog ORDER BY created_at DESC'
   );
 }
 
@@ -241,35 +204,5 @@ export async function deleteBlog(id: number): Promise<number> {
   return await runExecute(
     'DELETE FROM blog WHERE id = ?',
     [id]
-  );
-}
-
-/**
- * パスワード情報を検索
- */
-export async function searchPasswords(query: string): Promise<Password[]> {
-  const like = `%${query}%`;
-  return await runSelect<Password>(
-    'SELECT * FROM password_manager WHERE site_name LIKE ? OR site_url LIKE ? OR login_id LIKE ? OR email LIKE ? OR memo LIKE ? ORDER BY updated_at DESC LIMIT 10',
-    [like, like, like, like, like]
-  );
-}
-
-/**
- * パスワード情報を取得（メモと基本情報のみ）
- */
-export async function getPassword(id: number): Promise<Password | undefined> {
-  return await runGet<Password>(
-    'SELECT id, site_name, site_url, memo, category, updated_at FROM password_manager WHERE id = ?',
-    [id]
-  );
-}
-
-/**
- * すべてのパスワード情報を取得（セキュリティのため制限情報のみ）
- */
-export async function getAllPasswords(): Promise<Array<Omit<Password, 'password' | 'login_id'>>> {
-  return await runSelect<Omit<Password, 'password' | 'login_id'>>(
-    'SELECT id, site_name, site_url, email, memo, category, created_at, updated_at FROM password_manager ORDER BY updated_at DESC'
   );
 }

@@ -3,11 +3,11 @@
 ```
 private-desk-mcp-server/
 ├── src/                          # ソースコード（TypeScript）
-│   ├── index.ts                  # MCP サーバーのメインエントリーポイント
-│   ├── types.ts                  # 型定義
+│   ├── index.ts                 # MCP サーバーのメインエントリーポイント
+│   ├── types.ts                 # 型定義
 │   ├── database/
-│   │   ├── connection.ts         # データベース接続管理
-│   │   └── queries.ts            # SQL クエリ関数
+│   │   ├── connection.ts       # データベース接続管理
+│   │   └── queries.ts          # SQL クエリ関数
 │   └── utils/
 │
 ├── dist/                         # コンパイル済み JavaScript（自動生成）
@@ -19,8 +19,8 @@ private-desk-mcp-server/
 │   └── utils/
 │
 ├── docs/                         # ドキュメント
-│   ├── API.md                    # API 仕様書
-│   └── ARCHITECTURE.md           # アーキテクチャ設計
+│   ├── API.md                   # API 仕様書
+│   └── ARCHITECTURE.md          # アーキテクチャ設計
 │
 ├── .env.example                  # 環境変数テンプレート
 ├── .gitignore                    # Git 無視ファイル

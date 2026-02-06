@@ -6,78 +6,85 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer } from 'http';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 
 import {
   searchPrivateDesk,
   buildLocalSummary,
   buildSearchContext,
   getDiary,
-  getAllDiaries,
   createDiary,
   updateDiary,
   deleteDiary,
   getWiki,
-  getAllWikis,
   createWiki,
   updateWiki,
   deleteWiki,
   getBlog,
-  getAllBlogs,
   createBlog,
   updateBlog,
   deleteBlog,
-  searchPasswords,
-  getAllPasswords,
+
 } from './database/queries.js';
-import type { SearchResult } from './types.js';
 
 // MCP サーバーの初期化
-const mcpServer = new McpServer(
-  {
-    name: 'private-desk-mcp',
-    version: '1.0.0',
-  },
-  {
-    capabilities: {
-      resources: {},
-      tools: {},
+function createMcpServer() {
+  return new McpServer(
+    {
+      name: 'private-desk-mcp',
+      version: '1.0.0',
     },
-  }
-);
+    {
+      capabilities: {
+        resources: {},
+        tools: {},
+      },
+    }
+  );
+}
 
 // ツールとリソースの登録
-function registerToolsAndResources() {
+function registerToolsAndResources(server: McpServer, options?: { allowDelete?: boolean }) {
+  const allowDelete = options?.allowDelete ?? true;
   // search_private_desk ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'search_private_desk',
     {
-      description: 'Search across Private Desk data (passwords, diaries, wikis, blogs)',
+      description: 'Search across Private Desk data (diaries, wikis, blogs)',
       inputSchema: {
         query: z.string().describe('Search query'),
-        limit: z.number().optional().describe('Maximum number of results per table (default: 5)'),
+        limit: z.number().int().min(1).max(50).optional().describe('Maximum number of results per table (default: 5)'),
       },
     },
     async ({ query, limit }) => {
       const result = await searchPrivateDesk(query, limit ?? 5);
       const context = buildSearchContext(result);
       const summary = buildLocalSummary(result);
-      
+      const diaries = result.diaries ?? [];
+      const wikis = result.wikis ?? [];
+      const blogs = result.blogs ?? [];
+      const sources = {
+        diaries: diaries.map((item) => ({ id: item.id, title: item.title, created_at: item.created_at })),
+        wikis: wikis.map((item) => ({ id: item.id, title: item.title, created_at: item.created_at })),
+        blogs: blogs.map((item) => ({ id: item.id, title: item.title, created_at: item.created_at, permalink: item.permalink })),
+      };
+
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ summary, context, sources: result }, null, 2),
+          text: JSON.stringify({ summary, context, sources }, null, 2),
         }],
       };
     }
   );
 
   // read_diary ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'read_diary',
     {
       description: 'Read a specific diary entry',
       inputSchema: {
-        id: z.number().describe('Diary entry ID'),
+        id: z.number().int().positive().describe('Diary entry ID'),
       },
     },
     async ({ id }) => {
@@ -95,7 +102,7 @@ function registerToolsAndResources() {
   );
 
   // write_diary ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'write_diary',
     {
       description: 'Create a new diary entry',
@@ -113,48 +120,62 @@ function registerToolsAndResources() {
   );
 
   // update_diary ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'update_diary',
     {
       description: 'Update an existing diary entry',
       inputSchema: {
-        id: z.number().describe('Diary entry ID'),
+        id: z.number().int().positive().describe('Diary entry ID'),
         title: z.string().describe('Diary entry title'),
         content: z.string().describe('Diary entry content (Markdown)'),
       },
     },
     async ({ id, title, content }) => {
       const changes = await updateDiary(id, title, content);
+      if (changes === 0) {
+        return {
+          content: [{ type: 'text' as const, text: `Diary entry with ID ${id} not found` }],
+          isError: true,
+        };
+      }
       return {
         content: [{ type: 'text' as const, text: `Diary entry updated: ${changes} row(s) changed` }],
       };
     }
   );
 
-  // delete_diary ツール
-  mcpServer.registerTool(
-    'delete_diary',
-    {
-      description: 'Delete a diary entry',
-      inputSchema: {
-        id: z.number().describe('Diary entry ID'),
+  if (allowDelete) {
+    // delete_diary ツール
+    server.registerTool(
+      'delete_diary',
+      {
+        description: 'Delete a diary entry',
+        inputSchema: {
+          id: z.number().int().positive().describe('Diary entry ID'),
+        },
       },
-    },
-    async ({ id }) => {
-      const changes = await deleteDiary(id);
-      return {
-        content: [{ type: 'text' as const, text: `Diary entry deleted: ${changes} row(s) deleted` }],
-      };
-    }
-  );
+      async ({ id }) => {
+        const changes = await deleteDiary(id);
+        if (changes === 0) {
+          return {
+            content: [{ type: 'text' as const, text: `Diary entry with ID ${id} not found` }],
+            isError: true,
+          };
+        }
+        return {
+          content: [{ type: 'text' as const, text: `Diary entry deleted: ${changes} row(s) deleted` }],
+        };
+      }
+    );
+  }
 
   // read_wiki ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'read_wiki',
     {
       description: 'Read a specific wiki page',
       inputSchema: {
-        id: z.number().describe('Wiki page ID'),
+        id: z.number().int().positive().describe('Wiki page ID'),
       },
     },
     async ({ id }) => {
@@ -172,7 +193,7 @@ function registerToolsAndResources() {
   );
 
   // write_wiki ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'write_wiki',
     {
       description: 'Create a new wiki page',
@@ -190,48 +211,62 @@ function registerToolsAndResources() {
   );
 
   // update_wiki ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'update_wiki',
     {
       description: 'Update an existing wiki page',
       inputSchema: {
-        id: z.number().describe('Wiki page ID'),
+        id: z.number().int().positive().describe('Wiki page ID'),
         title: z.string().describe('Wiki page title'),
         content: z.string().describe('Wiki page content (Markdown)'),
       },
     },
     async ({ id, title, content }) => {
       const changes = await updateWiki(id, title, content);
+      if (changes === 0) {
+        return {
+          content: [{ type: 'text' as const, text: `Wiki page with ID ${id} not found` }],
+          isError: true,
+        };
+      }
       return {
         content: [{ type: 'text' as const, text: `Wiki page updated: ${changes} row(s) changed` }],
       };
     }
   );
 
-  // delete_wiki ツール
-  mcpServer.registerTool(
-    'delete_wiki',
-    {
-      description: 'Delete a wiki page',
-      inputSchema: {
-        id: z.number().describe('Wiki page ID'),
+  if (allowDelete) {
+    // delete_wiki ツール
+    server.registerTool(
+      'delete_wiki',
+      {
+        description: 'Delete a wiki page',
+        inputSchema: {
+          id: z.number().int().positive().describe('Wiki page ID'),
+        },
       },
-    },
-    async ({ id }) => {
-      const changes = await deleteWiki(id);
-      return {
-        content: [{ type: 'text' as const, text: `Wiki page deleted: ${changes} row(s) deleted` }],
-      };
-    }
-  );
+      async ({ id }) => {
+        const changes = await deleteWiki(id);
+        if (changes === 0) {
+          return {
+            content: [{ type: 'text' as const, text: `Wiki page with ID ${id} not found` }],
+            isError: true,
+          };
+        }
+        return {
+          content: [{ type: 'text' as const, text: `Wiki page deleted: ${changes} row(s) deleted` }],
+        };
+      }
+    );
+  }
 
   // read_blog ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'read_blog',
     {
       description: 'Read a specific blog post',
       inputSchema: {
-        id: z.number().describe('Blog post ID'),
+        id: z.number().int().positive().describe('Blog post ID'),
       },
     },
     async ({ id }) => {
@@ -249,7 +284,7 @@ function registerToolsAndResources() {
   );
 
   // write_blog ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'write_blog',
     {
       description: 'Create a new blog post',
@@ -274,12 +309,12 @@ function registerToolsAndResources() {
   );
 
   // update_blog ツール
-  mcpServer.registerTool(
+  server.registerTool(
     'update_blog',
     {
       description: 'Update an existing blog post',
       inputSchema: {
-        id: z.number().describe('Blog post ID'),
+        id: z.number().int().positive().describe('Blog post ID'),
         title: z.string().describe('Blog post title'),
         content: z.string().describe('Blog post content'),
         content_markdown: z.string().describe('Blog post markdown content'),
@@ -288,121 +323,57 @@ function registerToolsAndResources() {
     },
     async ({ id, title, content, content_markdown, content_html }) => {
       const changes = await updateBlog(id, title, content, content_markdown, content_html);
+      if (changes === 0) {
+        return {
+          content: [{ type: 'text' as const, text: `Blog post with ID ${id} not found` }],
+          isError: true,
+        };
+      }
       return {
         content: [{ type: 'text' as const, text: `Blog post updated: ${changes} row(s) changed` }],
       };
     }
   );
 
-  // delete_blog ツール
-  mcpServer.registerTool(
-    'delete_blog',
-    {
-      description: 'Delete a blog post',
-      inputSchema: {
-        id: z.number().describe('Blog post ID'),
+  if (allowDelete) {
+    // delete_blog ツール
+    server.registerTool(
+      'delete_blog',
+      {
+        description: 'Delete a blog post',
+        inputSchema: {
+          id: z.number().int().positive().describe('Blog post ID'),
+        },
       },
-    },
-    async ({ id }) => {
-      const changes = await deleteBlog(id);
-      return {
-        content: [{ type: 'text' as const, text: `Blog post deleted: ${changes} row(s) deleted` }],
-      };
-    }
-  );
-
-  // search_passwords ツール
-  mcpServer.registerTool(
-    'search_passwords',
-    {
-      description: 'Search password manager entries',
-      inputSchema: {
-        query: z.string().describe('Search query'),
-      },
-    },
-    async ({ query }) => {
-      const passwords = await searchPasswords(query);
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(passwords, null, 2) }],
-      };
-    }
-  );
-
-  // リソース登録
-  mcpServer.resource(
-    'All Diaries',
-    'private-desk://diaries',
-    async () => {
-      const diaries = await getAllDiaries();
-      return {
-        contents: [{
-          uri: 'private-desk://diaries',
-          mimeType: 'application/json',
-          text: JSON.stringify(diaries, null, 2),
-        }],
-      };
-    }
-  );
-
-  mcpServer.resource(
-    'All Wiki Pages',
-    'private-desk://wikis',
-    async () => {
-      const wikis = await getAllWikis();
-      return {
-        contents: [{
-          uri: 'private-desk://wikis',
-          mimeType: 'application/json',
-          text: JSON.stringify(wikis, null, 2),
-        }],
-      };
-    }
-  );
-
-  mcpServer.resource(
-    'All Blog Posts',
-    'private-desk://blogs',
-    async () => {
-      const blogs = await getAllBlogs();
-      return {
-        contents: [{
-          uri: 'private-desk://blogs',
-          mimeType: 'application/json',
-          text: JSON.stringify(blogs, null, 2),
-        }],
-      };
-    }
-  );
-
-  mcpServer.resource(
-    'Password Entries',
-    'private-desk://passwords',
-    async () => {
-      const passwords = await getAllPasswords();
-      return {
-        contents: [{
-          uri: 'private-desk://passwords',
-          mimeType: 'application/json',
-          text: JSON.stringify(passwords, null, 2),
-        }],
-      };
-    }
-  );
+      async ({ id }) => {
+        const changes = await deleteBlog(id);
+        if (changes === 0) {
+          return {
+            content: [{ type: 'text' as const, text: `Blog post with ID ${id} not found` }],
+            isError: true,
+          };
+        }
+        return {
+          content: [{ type: 'text' as const, text: `Blog post deleted: ${changes} row(s) deleted` }],
+        };
+      }
+    );
+  }
 }
 
 // HTTPサーバー起動
-function startHttpServer() {
+function startHttpServer(server: McpServer) {
   const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
   const host = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
 
   // StreamableHTTPServerTransportを作成
   const httpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
+    sessionIdGenerator: () => randomUUID(),
     enableJsonResponse: true, // JSON形式のレスポンスを有効化（SSEとAcceptヘッダー要件を緩和）
   });
 
   // HTTPサーバーを作成
-  const server = createServer(async (req, res) => {
+  const httpServerInstance = createServer(async (req, res) => {
     // ヘルスチェックエンドポイント
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -411,9 +382,16 @@ function startHttpServer() {
     }
 
     // MCPエンドポイント
-    if (req.url === '/mcp' || req.url === '/sse') {
+    const path = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname;
+    if (path === '/mcp' || path === '/sse') {
+    try {
       await httpTransport.handleRequest(req, res);
-      return;
+    } catch (e) {
+      console.error('❌ handleRequest failed:', e);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal Server Error' }));
+    }
+    return;
     }
 
     // 404
@@ -422,38 +400,52 @@ function startHttpServer() {
   });
 
   // MCPサーバーをHTTPトランスポートに接続
-  mcpServer.connect(httpTransport).then(() => {
-    server.listen(port, host, () => {
-      console.error(`✓ HTTP server listening on http://${host}:${port}`);
-      console.error(`  - Health check: GET http://${host}:${port}/health`);
-      console.error(`  - MCP endpoint: POST http://${host}:${port}/mcp`);
+  server.connect(httpTransport)
+    .then(() => {
+      httpServerInstance.listen(port, host, () => {
+        console.error(`✓ HTTP server listening on http://${host}:${port}`);
+        console.error(`  - Health check: GET http://${host}:${port}/health`);
+        console.error(`  - MCP endpoint: POST http://${host}:${port}/mcp`);
+      });
+    })
+    .catch((error) => {
+      console.error('❌ Failed to connect MCP server to HTTP transport:', error);
+      process.exit(1);
     });
-  });
 }
 
 // サーバー起動
 async function main() {
-  // ツールとリソースを登録
-  registerToolsAndResources();
-  
   const mode = process.env.MCP_TRANSPORT_MODE ?? 'stdio';
-  
+
   if (mode === 'http') {
     // HTTPモードのみ
     console.error('🚀 Private Desk MCP server starting in HTTP mode...');
-    startHttpServer();
+    const httpServer = createMcpServer();
+    registerToolsAndResources(httpServer, { allowDelete: false });
+    console.error('🧭 HTTP tools: delete disabled');
+    startHttpServer(httpServer);
     // HTTPモードではプロセスを維持（サーバーが動いている限り）
   } else if (mode === 'both') {
     // Stdio + HTTP 両方
+    const stdioServer = createMcpServer();
+    registerToolsAndResources(stdioServer, { allowDelete: true });
     const transport = new StdioServerTransport();
-    await mcpServer.connect(transport);
+    await stdioServer.connect(transport);
     console.error('🚀 Private Desk MCP server started (stdio + HTTP)');
-    startHttpServer();
+    console.error('🧭 Stdio tools: delete enabled');
+    const httpServer = createMcpServer();
+    registerToolsAndResources(httpServer, { allowDelete: false });
+    console.error('🧭 HTTP tools: delete disabled');
+    startHttpServer(httpServer);
   } else {
     // デフォルト: Stdioのみ
+    const stdioServer = createMcpServer();
+    registerToolsAndResources(stdioServer, { allowDelete: true });
     const transport = new StdioServerTransport();
-    await mcpServer.connect(transport);
+    await stdioServer.connect(transport);
     console.error('🚀 Private Desk MCP server started (stdio only)');
+    console.error('🧭 Stdio tools: delete enabled');
   }
 }
 
