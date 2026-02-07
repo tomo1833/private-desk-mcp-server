@@ -1,27 +1,25 @@
 # Private Desk MCP Server
 
-独立した MCP サーバー。Private Desk のデータベースにアクセスし、検索、日報、Wiki、ブログ、パスワード管理のデータを取得・書き込みできます。
+Private Desk の SQLite データベースにアクセスする **スタンドアロン MCP サーバー** です。日報 / Wiki / ブログの検索・読み取り・作成・更新・削除を提供します。
 
 ## 特徴
 
-- **スタンドアロン MCP サーバー**: stdio トランスポートで local-llm-chat などから呼び出し可能
-- **検索機能**: パスワード、日報、Wiki、ブログを統合検索
-- **要約生成**: Ollama（ローカルLLM）を使用した自動要約
-- **データ書き込み**: 日報、Wiki、ブログのデータ作成・更新
-- **Raspberry Pi 対応**: 低消費電力環境での動作を想定
+- **stdio トランスポート**: MCP クライアント（例: Claude Desktop）から呼び出し可能
+- **HTTP トランスポート**: `/mcp` への JSON-RPC 2.0 リクエスト対応（`/health` あり）
+- **統合検索**: 日報 / Wiki / ブログを横断検索
+- **CRUD**: 日報 / Wiki / ブログの作成・更新・削除
+- **Raspberry Pi 対応**: 低消費電力環境を想定
 
 ## 前提条件
 
 - Node.js 18 以上
-- Private Desk が Raspberry Pi 上で稼働中
+- Private Desk の SQLite データベースへアクセスできること
 
 ## セットアップ
 
-### 1. プロジェクトの複製/作成
+### 1. 依存関係のインストール
 
 ```bash
-cd /path/to/your/projects
-# このプロジェクトが既にある場合
 npm install
 ```
 
@@ -36,11 +34,11 @@ cp .env.example .env
 `.env` で必要な設定：
 
 ```env
-# Private Desk のデータベースパス（共有フォルダまたはネットワークパス）
+# Private Desk のデータベースパス
 PRIVATE_DESK_DB_PATH=/path/to/private-desk/data/database.sqlite
-# または、NFS/Samba 経由で共有されている場合
-# PRIVATE_DESK_DB_PATH=/mnt/private-desk/data/database.sqlite
 ```
+
+> 既定パスは `src/database/connection.ts` で解決されます。運用では `PRIVATE_DESK_DB_PATH` を明示指定してください。
 
 ### 3. ビルド
 
@@ -50,17 +48,19 @@ npm run build
 
 ### 4. 起動
 
-#### Stdioモード（デフォルト、MCPクライアント用）
+#### Stdio モード（デフォルト）
 ```bash
 npm start
 ```
 
-#### HTTPモード
+#### HTTP モード
 ```bash
 npm run start:http
 # または
 MCP_TRANSPORT_MODE=http npm start
 ```
+
+`.env` に `MCP_TRANSPORT_MODE=http` を設定済みの場合は、`npm start` だけで起動できます。
 
 #### 両方を有効にする
 ```bash
@@ -69,16 +69,19 @@ npm run start:both
 MCP_TRANSPORT_MODE=both npm start
 ```
 
+`.env` に `MCP_TRANSPORT_MODE=both` を設定済みの場合は、`npm start` だけで起動できます。
+
 ## 使用方法
 
-### HTTPサーバーとして使用する
+### HTTP サーバーとして使用する
 
-HTTPモードで起動すると、REST API経由でMCPサーバーにアクセスできます。
+HTTP モードで起動すると、`/mcp` で JSON-RPC 2.0 を受け付けます。`/health` は簡易ヘルスチェックです。
 
 #### エンドポイント
 
 - `GET /health` - ヘルスチェック
-- `POST /mcp` - JSON-RPCリクエスト
+- `POST /mcp` - JSON-RPC 2.0
+- `POST /sse` - StreamableHTTP 用（クライアント実装依存）
 
 #### リクエスト例
 
@@ -112,9 +115,9 @@ curl -X POST http://localhost:3001/mcp \
   }'
 ```
 
-### local-llm-chat から呼び出す
+### Claude Desktop / local-llm-chat から呼び出す
 
-`local-llm-chat` の `claude.json` で MCP サーバーを設定します：
+`claude_desktop_config.json` などに MCP サーバーを設定します：
 
 ```json
 {
@@ -130,46 +133,6 @@ curl -X POST http://localhost:3001/mcp \
 }
 ```
 
-### 利用可能なリソース
-
-#### 検索
-
-```
-私は"パスワード"について検索したい -> search_private_desk というツールを呼び出す
-```
-
-#### 日報の作成/更新
-
-日報データの作成や更新が可能です。
-
-#### Wiki の作成/更新
-
-Wiki ページの作成や更新が可能です。
-
-#### ブログの作成/更新
-
-ブログ記事の作成や更新が可能です。
-
-## プロジェクト構造
-
-```
-src/
-├── index.ts              # MCP サーバーのエントリーポイント
-├── database/
-│   ├── connection.ts     # データベース接続管理
-│   └── queries.ts        # SQLクエリ定義
-├── tools/
-│   ├── search.ts         # 検索ツール
-│   ├── diary.ts          # 日報ツール
-│   ├── wiki.ts           # Wiki ツール
-│   ├── blog.ts           # ブログツール
-│   └── password.ts       # パスワードツール
-├── resources/
-│   └── index.ts          # リソース定義
-└── utils/
-    └── ollama.ts         # Ollama API ラッパー
-```
-
 ## ツール一覧
 
 ### `search_private_desk`
@@ -179,61 +142,79 @@ Private Desk 全体から統合検索を実行します。
 パラメータ：
 - `query` (必須): 検索キーワード
 - `limit` (オプション): 各テーブルから取得する最大件数（デフォルト: 5）
-- `use_llm` (オプション): Ollama で要約を生成するか（デフォルト: true）
+
+レスポンスは JSON 文字列で、以下の情報を含みます：
+- `summary`: ローカル要約（件数と上位タイトル）
+- `context`: コンテキスト化された本文スニペット
+- `sources`: 結果のメタデータ（id / title / created_at など）
 
 ### `read_diary`
-
-日報エントリーを読み込みます。
+日報エントリーを読み込みます（`id` 必須）。
 
 ### `write_diary`
-
-新規日報エントリーを作成します。
+新規日報エントリーを作成します（`title`, `content` 必須）。
 
 ### `update_diary`
+既存の日報エントリーを更新します（`id`, `title`, `content` 必須）。
 
-既存の日報エントリーを更新します。
+### `delete_diary`
+日報エントリーを削除します（`id` 必須）。
 
 ### `read_wiki`
-
-Wiki ページを読み込みます。
+Wiki ページを読み込みます（`id` 必須）。
 
 ### `write_wiki`
-
-新規 Wiki ページを作成します。
+新規 Wiki ページを作成します（`title`, `content` 必須）。
 
 ### `update_wiki`
+既存の Wiki ページを更新します（`id`, `title`, `content` 必須）。
 
-既存の Wiki ページを更新します。
+### `delete_wiki`
+Wiki ページを削除します（`id` 必須）。
 
 ### `read_blog`
-
-ブログ記事を読み込みます。
+ブログ記事を読み込みます（`id` 必須）。
 
 ### `write_blog`
-
-新規ブログ記事を作成します。
+新規ブログ記事を作成します。必須パラメータ：
+- `title`, `content`, `content_markdown`, `content_html`
+- `eyecatch`, `permalink`, `site`, `author`, `persona`
 
 ### `update_blog`
+既存のブログ記事を更新します。必須パラメータ：
+- `id`, `title`, `content`, `content_markdown`, `content_html`
 
-既存のブログ記事を更新します。
+### `delete_blog`
+ブログ記事を削除します（`id` 必須）。
 
-### `search_passwords`
+> HTTP モードでは削除系ツールが無効化されます（stdio のみ有効）。
 
-パスワード情報から検索します。
+## プロジェクト構造
+
+```
+src/
+├── index.ts              # MCP サーバーのエントリーポイント
+├── types.ts              # TypeScript 型定義
+└── database/
+    ├── connection.ts     # データベース接続管理
+    └── queries.ts        # SQL クエリ定義
+```
 
 ## トラブルシューティング
 
 ### データベースに接続できない
 
-- `PRIVATE_DESK_DB_PATH` が正しい path に指定されているか確認
-- ファイルの読み書き権限があるか確認
+- `PRIVATE_DESK_DB_PATH` が正しいか確認
+- ファイルの読み書き権限を確認
 - ネットワークパスの場合、マウント状態を確認
 
-### Ollama に接続できない
+### better-sqlite3 がインストールされていない
 
-- Ollama が起動しているか確認: `ollama serve`
-- ホストとポートが正しいか確認（デフォルト: http://localhost:11434）
-- `.env` の設定を確認
+`better-sqlite3` は optional 依存です。未インストール時は DB 機能が無効になります。
+
+```bash
+npm install better-sqlite3
+```
 
 ### MCP サーバーが起動しない
 
@@ -241,42 +222,24 @@ Wiki ページを読み込みます。
 - `npm install` を実行して依存関係を再インストール
 - コンソールのエラーメッセージを確認
 
-### Windows環境でbetter-sqlite3のインストールに失敗する
+### Windows で better-sqlite3 のインストールに失敗する
 
-better-sqlite3はネイティブモジュールで、Windowsではビルドツールが必要です。
-
-#### 解決方法1: プリビルドバイナリを使用
 ```bash
-npm install --ignore-scripts
-```
-
-#### 解決方法2: ビルドツールをインストール
-```bash
-# Visual Studio Build Toolsをインストール
+# Visual Studio Build Tools をインストール
 # https://visualstudio.microsoft.com/downloads/
 # 「Desktop development with C++」ワークロードを選択
 ```
 
-#### 解決方法3: データベース機能なしでHTTPサーバーのみ使用
-```bash
-# better-sqlite3がインストールされていなくても、HTTPサーバーは起動します
-# ただし、データベース機能を呼び出すとエラーになります
-MCP_TRANSPORT_MODE=http npm start
-```
+### HTTP サーバーの動作確認（PowerShell）
 
-### HTTPサーバーの動作確認
-
-```bash
-# HTTPモードで起動
+```powershell
+# HTTP モードで起動
 npm run start:http
 
-# 別のターミナルでヘルスチェック（PowerShell）
+# ヘルスチェック
 Invoke-WebRequest -Uri http://localhost:3001/health
 
-# または curl (Git Bash / WSL)
-curl http://localhost:3001/health
-
-# JSON-RPCリクエストのテスト（PowerShell）
+# JSON-RPC リクエストのテスト
 $body = @{
   jsonrpc = "2.0"
   id = 1
@@ -295,8 +258,8 @@ Invoke-WebRequest -Uri http://localhost:3001/mcp `
 |--------|-------------|------|
 | `PRIVATE_DESK_DB_PATH` | `../private-desk/data/database.sqlite` | データベースファイルのパス |
 | `MCP_TRANSPORT_MODE` | `stdio` | トランスポートモード: `stdio` / `http` / `both` |
-| `MCP_HTTP_HOST` | `0.0.0.0` | HTTPサーバーのホスト |
-| `MCP_HTTP_PORT` | `3001` | HTTPサーバーのポート |
+| `MCP_HTTP_HOST` | `0.0.0.0` | HTTP サーバーのホスト |
+| `MCP_HTTP_PORT` | `3001` | HTTP サーバーのポート |
 
 ## ライセンス
 
@@ -304,5 +267,5 @@ MIT
 
 ## 関連プロジェクト
 
-- [Private Desk](https://github.com/tomo1833/private-desk) - 個人向けデスクトップアプリ
-- [local-llm-chat](https://github.com/tomo1833/local-llm-chat) - Ollama ベースのチャットアプリ
+- Private Desk - 個人向けデスクトップアプリ
+- local-llm-chat - MCP クライアント

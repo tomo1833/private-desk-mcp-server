@@ -1,69 +1,48 @@
-# プロジェクト構造ガイド
+# アーキテクチャ概要
+
+Private Desk MCP Server は、Private Desk の SQLite データベースへアクセスするための **スタンドアロン MCP サーバー** です。stdio / HTTP トランスポートの両方を提供します。
+
+## プロジェクト構造
 
 ```
 private-desk-mcp-server/
-├── src/                          # ソースコード（TypeScript）
+├── src/
 │   ├── index.ts                 # MCP サーバーのメインエントリーポイント
-│   ├── types.ts                 # 型定義
-│   ├── database/
-│   │   ├── connection.ts       # データベース接続管理
-│   │   └── queries.ts          # SQL クエリ関数
-│   └── utils/
-│
+│   ├── types.ts                 # TypeScript 型定義
+│   └── database/
+│       ├── connection.ts        # データベース接続管理
+│       └── queries.ts           # SQL クエリ関数
 ├── dist/                         # コンパイル済み JavaScript（自動生成）
-│   ├── index.js
-│   ├── types.js
-│   ├── database/
-│   │   ├── connection.js
-│   │   └── queries.js
-│   └── utils/
-│
-├── docs/                         # ドキュメント
-│   ├── API.md                   # API 仕様書
-│   └── ARCHITECTURE.md          # アーキテクチャ設計
-│
 ├── .env.example                  # 環境変数テンプレート
-├── .gitignore                    # Git 無視ファイル
-├── package.json                  # 依存関係定義
-├── package-lock.json             # 依存関係ロック
-├── tsconfig.json                 # TypeScript 設定
-│
-├── README.md                     # プロジェクト概要
-├── SETUP_WINDOWS.md              # Windows セットアップ
-├── SETUP_RASPBERRY_PI.md         # Raspberry Pi セットアップ
-├── INTEGRATION_LOCAL_LLM_CHAT.md # local-llm-chat 統合ガイド
-└── DEPLOYMENT.md                 # デプロイメント手順
+├── package.json
+├── tsconfig.json
+├── README.md
+├── SETUP_WINDOWS.md
+├── SETUP_RASPBERRY_PI.md
+├── INTEGRATION_LOCAL_LLM_CHAT.md
+└── DEPLOYMENT.md
 ```
 
-## 主要ファイルの説明
+## 主要ファイル
 
-### src/index.ts
-MCP サーバーのメインファイル。以下の機能を実装：
-- MCP プロトコルの初期化
-- リソース定義（Resources）
-- ツール定義と実装（Tools）
-- stdio トランスポートでの通信
+### `src/index.ts`
 
-**主要な関数:**
-- `server.setRequestHandler(ListResourcesRequestSchema)` - リソース一覧
-- `server.setRequestHandler(ReadResourceRequestSchema)` - リソース読み込み
-- `server.setRequestHandler(ListToolsRequestSchema)` - ツール一覧
-- `server.setRequestHandler(CallToolRequestSchema)` - ツール実行
+- `McpServer` を初期化し、ツールを `registerTool` で登録
+- stdio / HTTP を切り替えて起動
+- HTTP モードでは `/health` と `/mcp` エンドポイントを提供
+- HTTP モードでは削除ツールを無効化
 
-### src/types.ts
-データベーススキーマに対応する TypeScript インターフェース：
-- `Password` - パスワード管理テーブル
-- `Diary` - 日報テーブル
-- `Wiki` - Wiki テーブル
-- `Blog` - ブログテーブル
-- `Schedule` - スケジュールテーブル
-- `Expense` - 家計簿テーブル
-- `SearchResult` - 統合検索結果
+### `src/types.ts`
 
-### src/database/connection.ts
-SQLite データベース接続の管理：
+データベーススキーマに対応する TypeScript 型定義：
 
-**公開関数:**
+- `Diary` / `Wiki` / `Blog` / `SearchResult`
+- `Schedule` / `Expense` は将来拡張用に定義済み（現状は未使用）
+
+### `src/database/connection.ts`
+
+SQLite データベース接続管理：
+
 - `getDatabase()` - DB インスタンス取得
 - `runSelect<T>(sql, params)` - 複数レコード取得
 - `runGet<T>(sql, params)` - 単一レコード取得
@@ -72,109 +51,79 @@ SQLite データベース接続の管理：
 - `runTransaction(fn)` - トランザクション実行
 - `closeDatabase()` - 接続を閉じる
 
-### src/database/queries.ts
-Private Desk データベースへのクエリ実装：
+`better-sqlite3` は optional 依存で、未インストール時は DB 機能が無効化されます。
 
-**検索・取得関数:**
-- `searchPrivateDesk(query, limit)` - 統合検索
-- `getDiary(id)`, `getAllDiaries()` - 日報取得
-- `getWiki(id)`, `getAllWikis()` - Wiki ページ取得
-- `getBlog(id)`, `getAllBlogs()` - ブログ取得
-- `searchPasswords(query)` - パスワード検索
+### `src/database/queries.ts`
 
-**作成・更新・削除関数:**
-- `createDiary(title, content)` - 日報作成
-- `updateDiary(id, title, content)` - 日報更新
-- `deleteDiary(id)` - 日報削除
-- 同様に Wiki、ブログ用の関数
+Private Desk DB に対するクエリ実装：
 
-**ユーティリティ関数:**
+**検索・取得**
+- `searchPrivateDesk(query, limit)`
+- `getDiary(id)` / `getWiki(id)` / `getBlog(id)`
+
+**作成・更新・削除**
+- `createDiary`, `updateDiary`, `deleteDiary`
+- `createWiki`, `updateWiki`, `deleteWiki`
+- `createBlog`, `updateBlog`, `deleteBlog`
+
+**ユーティリティ**
 - `buildLocalSummary(result)` - ローカル要約生成
-- `buildSearchContext(result)` - 検索コンテキスト構築
+- `buildSearchContext(result)` - 検索結果をコンテキスト化
 - `clipText(text)` - テキスト切り詰め
 
-## MCP プロトコル実装
+## MCP ツール一覧
 
-### リソース（Resources）
+### 検索
+- `search_private_desk`
 
-リソースは読み取り専用のデータを表します：
+### 読み込み
+- `read_diary`
+- `read_wiki`
+- `read_blog`
 
-| URI | 説明 | 例 |
-|-----|------|-----|
-| `private-desk://search?q=...` | 統合検索結果 | `private-desk://search?q=meeting` |
-| `private-desk://diaries` | すべての日報 | |
-| `private-desk://wikis` | すべての Wiki | |
-| `private-desk://blogs` | すべてのブログ | |
-| `private-desk://passwords` | パスワード情報（メタデータのみ） | |
+### 作成
+- `write_diary`
+- `write_wiki`
+- `write_blog`
 
-### ツール（Tools）
+### 更新
+- `update_diary`
+- `update_wiki`
+- `update_blog`
 
-ツールは実行可能なアクションを表します：
+### 削除
+- `delete_diary`
+- `delete_wiki`
+- `delete_blog`
 
-#### 検索ツール
-- `search_private_desk` - 統合検索
-
-#### 読み込みツール
-- `read_diary` - 日報読み込み
-- `read_wiki` - Wiki 読み込み
-- `read_blog` - ブログ読み込み
-
-#### 書き込みツール
-- `write_diary` - 日報作成
-- `write_wiki` - Wiki 作成
-- `write_blog` - ブログ作成
-
-#### 更新ツール
-- `update_diary` - 日報更新
-- `update_wiki` - Wiki 更新
-- `update_blog` - ブログ更新
-
-#### 削除ツール
-- `delete_diary` - 日報削除
-- `delete_wiki` - Wiki 削除
-- `delete_blog` - ブログ削除
-
-#### その他
-- `search_passwords` - パスワード検索
+> HTTP モードでは削除系ツールを登録しません。
 
 ## データフロー
 
-### 検索フロー
+### 検索フロー（`search_private_desk`）
 
 ```
-local-llm-chat
+MCP Client
     ↓
-  (MCP)
+MCP Server
+    ↓ (searchPrivateDesk)
+Private Desk DB
     ↓
-MCP Server (search_private_desk ツール)
+buildLocalSummary / buildSearchContext
     ↓
-  1. Private Desk DB から検索
-    ↓
-  2. 検索結果をコンテキスト化
-    ↓
-  3. 検索結果をローカル要約で処理
-    ↓
-  4. 結果を JSON で返却
-    ↓
-local-llm-chat に表示
+JSON 文字列で返却
 ```
 
-### データ作成フロー
+### 作成フロー（`write_diary` など）
 
 ```
-local-llm-chat
+MCP Client
     ↓
-  (MCP)
+MCP Server
+    ↓ (createDiary 等)
+Private Desk DB
     ↓
-MCP Server (write_diary など)
-    ↓
-  1. パラメータを検証
-    ↓
-  2. Private Desk DB に INSERT
-    ↓
-  3. 作成結果（ID）を返却
-    ↓
-local-llm-chat に通知
+作成 ID を返却
 ```
 
 ## 環境変数
@@ -182,90 +131,27 @@ local-llm-chat に通知
 | 変数名 | 説明 | デフォルト |
 |--------|------|-----------|
 | `PRIVATE_DESK_DB_PATH` | Private Desk データベースパス | `../private-desk/data/database.sqlite` |
-| `LOG_LEVEL` | ログレベル | `info` |
-| `NODE_OPTIONS` | Node.js オプション | （デフォルトなし） |
+| `MCP_TRANSPORT_MODE` | `stdio` / `http` / `both` | `stdio` |
+| `MCP_HTTP_HOST` | HTTP サーバーのホスト | `0.0.0.0` |
+| `MCP_HTTP_PORT` | HTTP サーバーのポート | `3001` |
 
 ## 開発ワークフロー
 
-### 1. ローカル開発
-
 ```bash
-# 開発環境セットアップ
 npm install
-
-# コードを編集
-# src/ にファイルを作成・編集
-
-# TypeScript をコンパイル
 npm run build
-
-# MCP サーバーを起動
 npm start
-
-# 別のターミナルで local-llm-chat やテストクライアントから接続
 ```
 
-### 2. テスト
+## テスト
 
 ```bash
-# 単体テストを実行（準備中）
+# まだテストは用意されていません
 npm test
-
-# 手動でツールをテスト
-# stdio 経由で JSON-RPC 2.0 メッセージを送信
 ```
-
-### 3. Raspberry Pi へのデプロイ
-
-```bash
-# ビルド
-npm run build
-
-# ファイルを転送
-scp -r dist/ pi@raspberrypi.local:/path/to/mcp-server/
-
-# Raspberry Pi 上で実行
-npm install --production
-npm start
-```
-
-## デバッグ方法
-
-### コンソールログ
-
-```typescript
-// src/index.ts 内
-console.error('デバッグメッセージ'); // stderr に出力
-console.log('情報メッセージ');       // stdout に出力
-```
-
-### MCP サーバーの直接実行
-
-```bash
-node dist/index.js
-```
-
-stdio 経由で JSON-RPC メッセージを送信可能。
-
-### journalctl でのログ確認（Raspberry Pi）
-
-```bash
-sudo journalctl -u private-desk-mcp.service -f
-```
-
-## パフォーマンス最適化のポイント
-
-1. **データベースインデックス**: Private Desk の `init-db.ts` で自動作成
-2. **キャッシング**: 頻繁に使用されるクエリ結果のメモ化（将来実装）
-3. **メモリ管理**: 大量データ検索時の `limit` パラメータ
-4. **接続プーリング**: better-sqlite3 は同期アクセスのため不要
 
 ## 今後の改善予定
 
-- [ ] ユニットテスト の実装
-- [ ] 統合テスト の追加
-- [ ] キャッシング層 の導入
-- [ ] gRPC トランスポート のサポート
-- [ ] データベース マイグレーション ツール
-- [ ] メトリクス収集 (Prometheus)
-- [ ] GraphQL API サポート
+- [ ] ユニットテスト / 統合テスト
+- [ ] キャッシング層の導入
+- [ ] メトリクス収集
