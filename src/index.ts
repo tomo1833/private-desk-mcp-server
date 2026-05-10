@@ -440,30 +440,31 @@ function startHttpServer(server: McpServer) {
     }
 
     // MCPエンドポイント
-    const path = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname;
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const path = url.pathname;
     
     // 詳細なデバッグログ
-    console.error(`[MCP DEBUG] Request: ${req.method} ${req.url}`);
-    console.error(`[MCP DEBUG] Path: ${path}`);
-    console.error(`[MCP DEBUG] Original Accept: ${req.headers.accept}`);
+    console.error(`[MCP DEBUG] ${req.method} ${req.url} (Accept: ${req.headers.accept})`);
 
-    // SSEエンドポイントへのリクエストの場合、Acceptヘッダーを完全にクリーンアップして固定
-    if (path === '/sse' || path === '/mcp') {
-      delete req.headers['accept'];
-      req.headers['accept'] = 'text/event-stream';
-      Object.defineProperty(req.headers, 'accept', { 
-        value: 'text/event-stream',
-        writable: true,
-        enumerable: true,
-        configurable: true
-      });
-      console.error(`[MCP DEBUG] Forced Accept: ${req.headers.accept}`);
+    // SSE開始リクエスト(GET)の場合、text/event-streamが含まれていなければ追加
+    if (path.startsWith('/sse') || path.startsWith('/mcp')) {
+      if (req.method === 'GET') {
+        const accept = req.headers.accept ?? '';
+        if (!accept.includes('text/event-stream')) {
+          req.headers.accept = accept ? `${accept}, text/event-stream` : 'text/event-stream';
+          console.error(`[MCP DEBUG] Appended text/event-stream to GET request`);
+        }
+      }
+      
+      try {
+        await httpTransport.handleRequest(req, res);
+      } catch (e) {
+        console.error('❌ handleRequest failed:', e);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      }
+      return;
     }
-
-    if (path === '/mcp' || path === '/sse') {
-    try {
-      await httpTransport.handleRequest(req, res);
-    } catch (e) {
       console.error('❌ handleRequest failed:', e);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Internal Server Error' }));
