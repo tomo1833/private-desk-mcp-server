@@ -430,27 +430,49 @@ function startHttpServer(server: McpServer) {
 
   // SSEストリームを保持するMap
   const sseResponses = new Map<string, any>();
+  // 処理中のリクエストを追跡するMap (ID -> resolve関数)
+  const pendingRequests = new Map<string | number, (response: any) => void>();
+
+  // ブリッジ用のトランスポートを作成
+  const serverTransport = new InMemoryTransport();
+  const clientTransport = new InMemoryTransport();
+
+  // 双方向接続
+  clientTransport.onmessage = (msg) => {
+    const response = msg as any;
+    if (response.id !== undefined && pendingRequests.has(response.id)) {
+      const resolve = pendingRequests.get(response.id)!;
+      resolve(response);
+      pendingRequests.delete(response.id);
+    } else if (response.method?.startsWith('notifications/') || !response.id) {
+      // 通知などをSSEストリームに流す
+      const sseData = `data: ${JSON.stringify(response)}\n\n`;
+      for (const res of sseResponses.values()) {
+        res.write(sseData);
+      }
+    }
+  };
+  serverTransport.onmessage = (msg) => clientTransport.send(msg);
+
+  // サーバーに接続 (1回だけ)
+  server.connect(serverTransport).catch(err => {
+    console.error('❌ Server Connect Error:', err);
+  });
 
   const httpServerInstance = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const path = url.pathname;
 
-    // CORSヘッダー
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
 
     if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
+      res.writeHead(204); res.end(); return;
     }
 
-    // ヘルスチェック
     if (path === '/health') {
-      res.writeHead(200);
-      res.end('ok');
-      return;
+      res.writeHead(200); res.end('ok'); return;
     }
 
     // SSE 接続 (GET /sse)
@@ -462,15 +484,13 @@ function startHttpServer(server: McpServer) {
         'Connection': 'keep-alive',
       });
 
-      // エンドポイント通知
       res.write(`event: endpoint\ndata: ${encodeURI('/sse?sessionId=' + sessionId)}\n\n`);
-      
       sseResponses.set(sessionId, res);
-      console.error(`[MCP DEBUG] SSE Stream Connected: ${sessionId}`);
+      console.error(`[MCP DEBUG] SSE Connected: ${sessionId}`);
 
       req.on('close', () => {
         sseResponses.delete(sessionId);
-        console.error(`[MCP DEBUG] SSE Stream Closed: ${sessionId}`);
+        console.error(`[MCP DEBUG] SSE Closed: ${sessionId}`);
       });
       return;
     }
@@ -482,59 +502,44 @@ function startHttpServer(server: McpServer) {
       req.on('end', async () => {
         try {
           const message = JSON.parse(body);
-          console.error(`[MCP DEBUG] Request: ${message.method}`);
-
-          // インメモリトランスポートを使用してメッセージを処理
-          const clientTransport = new InMemoryTransport();
-          const serverTransport = new InMemoryTransport();
           
-          // 双方向接続
-          clientTransport.onmessage = (msg) => serverTransport.send(msg);
-          serverTransport.onmessage = (msg) => clientTransport.send(msg);
-
-          // サーバーに接続
-          await server.connect(serverTransport);
-
-          // レスポンスを待機
-          let responded = false;
-          clientTransport.onmessage = (response) => {
-            if (!responded && (response as any).id === message.id) {
-              responded = true;
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify(response));
-              console.error(`[MCP DEBUG] Response sent for ${message.method}`);
+          const responsePromise = new Promise((resolve) => {
+            if (message.id !== undefined) {
+              pendingRequests.set(message.id, resolve);
+            } else {
+              resolve({ jsonrpc: '2.0', result: {} });
             }
-          };
+          });
 
-          // メッセージ送信
           await clientTransport.send(message);
 
-          // タイムアウト保護 (30秒)
-          setTimeout(() => {
-            if (!responded) {
-              responded = true;
-              res.writeHead(504);
-              res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'Request timeout' } }));
+          const timeout = setTimeout(() => {
+            if (message.id !== undefined && pendingRequests.has(message.id)) {
+              const resolve = pendingRequests.get(message.id)!;
+              resolve({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'Request timeout' } });
+              pendingRequests.delete(message.id);
             }
           }, 30000);
 
+          const response = await responsePromise;
+          clearTimeout(timeout);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(response));
+
         } catch (e) {
           console.error('❌ POST Error:', e);
-          res.writeHead(400);
-          res.end('Bad Request');
+          res.writeHead(400); res.end('Bad Request');
         }
       });
       return;
     }
 
-    res.writeHead(404);
-    res.end('Not found');
+    res.writeHead(404); res.end('Not found');
   });
 
-  httpServerInstance.timeout = 0;
-
   httpServerInstance.listen(port, host, () => {
-    console.error(`✓ MCP HTTP server listening on http://${host}:${port}`);
+    console.error(`✓ MCP HTTP bridge listening on http://${host}:${port}`);
     console.error(`  - SSE endpoint: http://${host}:${port}/sse`);
   });
 }
