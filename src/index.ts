@@ -59,6 +59,7 @@ function registerToolsAndResources(server: McpServer, options?: { allowDelete?: 
       },
     },
     async ({ query, limit }) => {
+      console.error(`[MCP DEBUG] Tool called: search_private_desk (query: ${query})`);
       const result = await searchPrivateDesk(query, limit ?? 5);
       const context = buildSearchContext(result);
       const summary = buildLocalSummary(result);
@@ -370,6 +371,7 @@ function registerToolsAndResources(server: McpServer, options?: { allowDelete?: 
       inputSchema: {},
     },
     async () => {
+      console.error('[MCP DEBUG] Tool called: list_tables');
       const tables = await listTables();
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(tables, null, 2) }],
@@ -404,6 +406,7 @@ function registerToolsAndResources(server: McpServer, options?: { allowDelete?: 
       },
     },
     async ({ sql }) => {
+      console.error(`[MCP DEBUG] Tool called: execute_query (sql: ${sql})`);
       try {
         const results = await executeQuery(sql);
         return {
