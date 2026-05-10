@@ -38,6 +38,16 @@ export async function getDatabase(): Promise<any> {
   const dbPath = process.env.PRIVATE_DESK_DB_PATH || 
     path.resolve(__dirname, '../../private-desk/data/database.sqlite');
 
+  const fs = await import('fs');
+  if (!fs.existsSync(dbPath)) {
+    console.error(`⚠️  WARNING: Database file NOT FOUND at: ${dbPath}`);
+    console.error(`   The server will create a NEW EMPTY database if it continues.`);
+  } else {
+    console.error(`✓ Database file confirmed at: ${dbPath}`);
+    const stats = fs.statSync(dbPath);
+    console.error(`   Size: ${stats.size} bytes, Last modified: ${stats.mtime}`);
+  }
+
   try {
     db = new DatabaseClass(dbPath, { readonly: false });
     // Foreign keys を有効化
