@@ -459,7 +459,14 @@ function startHttpServer(server: McpServer) {
 
     // MCPリクエストの処理
     if (path.startsWith('/sse') || path.startsWith('/mcp')) {
-      // 1. ヘッダーの調整 (SDKの要件を満たす)
+      // 1. SSE接続維持のためのヘッダー設定
+      if (req.method === 'GET') {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+      }
+
+      // 2. SDKの要件を満たすための Accept ヘッダー強制
       const sseHeader = 'text/event-stream';
       req.headers['accept'] = sseHeader;
       req.headers['Accept'] = sseHeader;
@@ -467,15 +474,15 @@ function startHttpServer(server: McpServer) {
         Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
       } catch (e) { /* ignore */ }
 
-      // 2. セッションIDの自動補完
-      // Open WebUIがPOST時にIDを忘れる問題への対応
+      // 3. セッションIDの自動補完
+      // URLにsessionIdパラメータが全くないPOSTリクエストのみ補完する
       if (req.method === 'POST' && !url.searchParams.has('sessionId') && lastSessionId) {
         const separator = req.url?.includes('?') ? '&' : '?';
         req.url = `${req.url}${separator}sessionId=${lastSessionId}`;
-        console.error(`[MCP DEBUG] Recovering session ID for POST: ${lastSessionId}`);
+        console.error(`[MCP DEBUG] Recovering missing session ID: ${lastSessionId}`);
       }
 
-      // 3. DELETE時のセッションクリア
+      // 4. DELETE時のセッションクリア
       if (req.method === 'DELETE') {
         lastSessionId = null;
       }
@@ -495,6 +502,10 @@ function startHttpServer(server: McpServer) {
     res.writeHead(404);
     res.end('Not found');
   });
+
+  // サーバー全体のタイムアウト設定を無効化
+  httpServerInstance.timeout = 0;
+  httpServerInstance.keepAliveTimeout = 0;
 
   // MCPサーバーをトランスポートに接続
   server.connect(httpTransport).catch(err => {
