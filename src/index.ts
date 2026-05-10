@@ -523,7 +523,17 @@ function startHttpServer(server: McpServer) {
       sseResponses.set(sessionId, res);
       console.error(`[MCP DEBUG] SSE Connected (Path: ${path}, Session: ${sessionId})`);
 
+      // 接続維持のためのハートビート (15秒ごと)
+      const heartbeat = setInterval(() => {
+        if (sseResponses.has(sessionId)) {
+          res.write(': heartbeat\n\n');
+        } else {
+          clearInterval(heartbeat);
+        }
+      }, 15000);
+
       req.on('close', () => {
+        clearInterval(heartbeat);
         sseResponses.delete(sessionId);
         console.error(`[MCP DEBUG] SSE Closed: ${sessionId}`);
       });
