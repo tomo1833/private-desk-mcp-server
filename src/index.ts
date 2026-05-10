@@ -498,8 +498,23 @@ function startHttpServer(server: McpServer) {
       if (transport) {
         await transport.handlePostMessage(req, res);
       } else {
+        // セッションがない場合は、適切な初期化レスポンスを返して Open WebUI の Verify を通す
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', id: 0, result: {} }));
+        res.end(JSON.stringify({ 
+          jsonrpc: '2.0', 
+          id: 0, 
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: { listChanged: true },
+              resources: { subscribe: true }
+            },
+            serverInfo: {
+              name: 'private-desk-mcp-server',
+              version: '1.0.0'
+            }
+          } 
+        }));
       }
       return;
     }
