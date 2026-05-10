@@ -427,9 +427,14 @@ function startHttpServer(server: McpServer) {
   const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
   const host = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
 
+  let lastSessionId: string | null = null;
+
   // StreamableHTTPServerTransportを作成
   const httpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
+    sessionIdGenerator: () => {
+      lastSessionId = randomUUID();
+      return lastSessionId;
+    },
     enableJsonResponse: true, // JSON形式のレスポンスを有効化（SSEとAcceptヘッダー要件を緩和）
   });
 
@@ -469,6 +474,13 @@ function startHttpServer(server: McpServer) {
 
     // MCPリクエストの処理
     if (path.startsWith('/sse') || path.startsWith('/mcp')) {
+      // セッションIDの自動補完（Open WebUI等のクライアント対応）
+      if (req.method === 'POST' && !url.searchParams.has('sessionId') && lastSessionId) {
+        const separator = req.url?.includes('?') ? '&' : '?';
+        req.url = `${req.url}${separator}sessionId=${lastSessionId}`;
+        console.error(`[MCP DEBUG] Recovered session ID for POST: ${lastSessionId}`);
+      }
+
       // GETリクエスト（SSEの開始ハンドシェイク）の時だけヘッダーを強制する
       if (req.method === 'GET') {
         const sseHeader = 'text/event-stream';
