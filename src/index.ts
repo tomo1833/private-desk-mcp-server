@@ -474,62 +474,41 @@ function startHttpServer(server: McpServer) {
 
     // MCPリクエストの処理
     if (path.startsWith('/sse') || path.startsWith('/mcp')) {
-      // POSTボディの解析が終わるのを待ってから処理を続行するためのフラグ
-      const processMcp = async (requestBody: string) => {
-        // DELETEリクエストの場合はセッションIDをクリア
-        if (req.method === 'DELETE') {
-          lastSessionId = null;
-          console.error(`[MCP DEBUG] Session cleared via DELETE`);
-        }
+      // セッションIDの自動補完（Open WebUI等のクライアント対応）
+      if (req.method === 'POST' && !url.searchParams.has('sessionId') && lastSessionId) {
+        const separator = req.url?.includes('?') ? '&' : '?';
+        req.url = `${req.url}${separator}sessionId=${lastSessionId}`;
+        console.error(`[MCP DEBUG] Recovered session ID for POST: ${lastSessionId}`);
+      }
 
-        // セッションIDの自動補完（Open WebUI等のクライアント対応）
-        // initializeメソッドの場合は新規セッションなので補完しない
-        const isInitialize = requestBody.includes('"method":"initialize"');
-        if (req.method === 'POST' && !url.searchParams.has('sessionId') && lastSessionId && !isInitialize) {
-          const separator = req.url?.includes('?') ? '&' : '?';
-          req.url = `${req.url}${separator}sessionId=${lastSessionId}`;
-          console.error(`[MCP DEBUG] Recovered session ID for POST: ${lastSessionId}`);
-        }
+      // DELETEリクエストの場合はセッションIDをクリア（これ以降の補完を防ぐ）
+      if (req.method === 'DELETE') {
+        lastSessionId = null;
+        console.error(`[MCP DEBUG] Session cleared via DELETE`);
+      }
 
-        // GETリクエスト（SSEの開始ハンドシェイク）の時だけヘッダーを強制する
-        if (req.method === 'GET') {
-          const sseHeader = 'text/event-stream';
-          req.headers['accept'] = sseHeader;
-          req.headers['Accept'] = sseHeader;
-          
-          try {
-            Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
-          } catch (e) {
-            // ignore
-          }
-          console.error(`[MCP DEBUG] Forced GET ${path} to ${sseHeader}`);
-        } else {
-          console.error(`[MCP DEBUG] Passing ${req.method} ${req.url} with original Accept: ${req.headers.accept}`);
-        }
+      // GETリクエスト（SSEの開始ハンドシェイク）の時だけヘッダーを強制する
+      if (req.method === 'GET') {
+        const sseHeader = 'text/event-stream';
+        req.headers['accept'] = sseHeader;
+        req.headers['Accept'] = sseHeader;
         
         try {
-          await httpTransport.handleRequest(req, res);
+          Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
         } catch (e) {
-          console.error('❌ handleRequest failed:', e);
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Internal Server Error' }));
-          }
+          // ignore
         }
-      };
-
-      // POSTの場合はボディを読み終えてから、それ以外は即座に実行
-      if (req.method === 'POST') {
-        let body = '';
-        req.on('data', (chunk) => { body += chunk; });
-        req.on('end', () => {
-          if (req.url && !req.url.includes('/health')) {
-            console.error(`[MCP DEBUG] POST Body: ${body}`);
-          }
-          processMcp(body);
-        });
-      } else {
-        processMcp('');
+        console.error(`[MCP DEBUG] Forced GET ${path} to ${sseHeader}`);
+      }
+      
+      try {
+        await httpTransport.handleRequest(req, res);
+      } catch (e) {
+        console.error('❌ handleRequest failed:', e);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        }
       }
       return;
     }
