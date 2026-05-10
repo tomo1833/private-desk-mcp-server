@@ -548,7 +548,8 @@ function startHttpServer(server: McpServer) {
             if (message.id !== undefined) {
               pendingRequests.set(message.id, resolve);
             } else {
-              resolve({ jsonrpc: '2.0', result: {} });
+              // 通知（IDなし）の場合はレスポンスを待たない
+              resolve(null);
             }
           });
 
@@ -565,8 +566,14 @@ function startHttpServer(server: McpServer) {
           const response = await responsePromise;
           clearTimeout(timeout);
 
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(response));
+          if (response === null) {
+            // 通知にはボディを返さない (JSON-RPC 2.0 準拠)
+            res.writeHead(204);
+            res.end();
+          } else {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(response));
+          }
 
         } catch (e: any) {
           console.error('❌ POST Error:', e.message);
