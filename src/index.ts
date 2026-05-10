@@ -3,7 +3,7 @@
 import 'dotenv/config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { createServer } from 'http';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
@@ -422,33 +422,29 @@ function registerToolsAndResources(server: McpServer, options?: { allowDelete?: 
   );
 }
 
-// HTTPサーバー起動
+
+// HTTPサーバー起動 (Open WebUI 最適化版)
 function startHttpServer(server: McpServer) {
   const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
   const host = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
 
-  let lastSessionId: string | null = null;
-
-  // StreamableHTTPServerTransportを作成
-  const httpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => {
-      lastSessionId = randomUUID();
-      console.error(`[MCP DEBUG] New Session ID: ${lastSessionId}`);
-      return lastSessionId;
-    },
-    enableJsonResponse: true, // JSONレスポンスを有効化
-  });
+  // SSEストリームを保持するMap
+  const sseResponses = new Map<string, any>();
 
   const httpServerInstance = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const path = url.pathname;
 
-    // デバッグログ
-    res.on('finish', () => {
-      if (path !== '/health') {
-        console.error(`[MCP DEBUG] ${req.method} ${req.url} -> ${res.statusCode}`);
-      }
-    });
+    // CORSヘッダー
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
 
     // ヘルスチェック
     if (path === '/health') {
@@ -457,45 +453,77 @@ function startHttpServer(server: McpServer) {
       return;
     }
 
-    // MCPリクエストの処理
-    if (path.startsWith('/sse') || path.startsWith('/mcp')) {
-      // 1. GETリクエスト（SSE接続開始）のみヘッダーを強制する
-      if (req.method === 'GET') {
-        const sseHeader = 'text/event-stream';
-        req.headers['accept'] = sseHeader;
-        req.headers['Accept'] = sseHeader;
+    // SSE 接続 (GET /sse)
+    if (path === '/sse' && req.method === 'GET') {
+      const sessionId = randomUUID();
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+
+      // エンドポイント通知
+      res.write(`event: endpoint\ndata: ${encodeURI('/sse?sessionId=' + sessionId)}\n\n`);
+      
+      sseResponses.set(sessionId, res);
+      console.error(`[MCP DEBUG] SSE Stream Connected: ${sessionId}`);
+
+      req.on('close', () => {
+        sseResponses.delete(sessionId);
+        console.error(`[MCP DEBUG] SSE Stream Closed: ${sessionId}`);
+      });
+      return;
+    }
+
+    // メッセージ受信 (POST /sse)
+    if (path === '/sse' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
         try {
-          Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
-        } catch (e) { /* ignore */ }
-        
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        console.error(`[MCP DEBUG] New SSE stream connection starting...`);
-      }
+          const message = JSON.parse(body);
+          console.error(`[MCP DEBUG] Request: ${message.method}`);
 
-      // 3. セッションIDの自動補完
-      // URLにsessionIdパラメータが全くないPOSTリクエストのみ補完する
-      if (req.method === 'POST' && !url.searchParams.has('sessionId') && lastSessionId) {
-        const separator = req.url?.includes('?') ? '&' : '?';
-        req.url = `${req.url}${separator}sessionId=${lastSessionId}`;
-        console.error(`[MCP DEBUG] Recovering missing session ID: ${lastSessionId}`);
-      }
+          // インメモリトランスポートを使用してメッセージを処理
+          const clientTransport = new InMemoryTransport();
+          const serverTransport = new InMemoryTransport();
+          
+          // 双方向接続
+          clientTransport.onmessage = (msg) => serverTransport.send(msg);
+          serverTransport.onmessage = (msg) => clientTransport.send(msg);
 
-      // 4. DELETE時のセッションクリア
-      if (req.method === 'DELETE') {
-        lastSessionId = null;
-      }
+          // サーバーに接続
+          await server.connect(serverTransport);
 
-      try {
-        await httpTransport.handleRequest(req, res);
-      } catch (e) {
-        console.error('❌ MCP Handle Error:', e);
-        if (!res.headersSent) {
-          res.writeHead(500);
-          res.end('Internal Server Error');
+          // レスポンスを待機
+          let responded = false;
+          clientTransport.onmessage = (response) => {
+            if (!responded && (response as any).id === message.id) {
+              responded = true;
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(response));
+              console.error(`[MCP DEBUG] Response sent for ${message.method}`);
+            }
+          };
+
+          // メッセージ送信
+          await clientTransport.send(message);
+
+          // タイムアウト保護 (30秒)
+          setTimeout(() => {
+            if (!responded) {
+              responded = true;
+              res.writeHead(504);
+              res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'Request timeout' } }));
+            }
+          }, 30000);
+
+        } catch (e) {
+          console.error('❌ POST Error:', e);
+          res.writeHead(400);
+          res.end('Bad Request');
         }
-      }
+      });
       return;
     }
 
@@ -503,15 +531,7 @@ function startHttpServer(server: McpServer) {
     res.end('Not found');
   });
 
-  // サーバー全体のタイムアウト設定を適切に調整 (1時間に設定)
-  httpServerInstance.timeout = 3600000;
-  httpServerInstance.keepAliveTimeout = 3600000;
-  httpServerInstance.headersTimeout = 3601000;
-
-  // MCPサーバーをトランスポートに接続
-  server.connect(httpTransport).catch(err => {
-    console.error('❌ Server Connect Error:', err);
-  });
+  httpServerInstance.timeout = 0;
 
   httpServerInstance.listen(port, host, () => {
     console.error(`✓ MCP HTTP server listening on http://${host}:${port}`);
