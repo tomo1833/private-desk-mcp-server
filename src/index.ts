@@ -459,20 +459,20 @@ function startHttpServer(server: McpServer) {
 
     // MCPリクエストの処理
     if (path.startsWith('/sse') || path.startsWith('/mcp')) {
-      // 1. SSE接続維持のためのヘッダー設定
+      // 1. GETリクエスト（SSE接続開始）のみヘッダーを強制する
       if (req.method === 'GET') {
+        const sseHeader = 'text/event-stream';
+        req.headers['accept'] = sseHeader;
+        req.headers['Accept'] = sseHeader;
+        try {
+          Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
+        } catch (e) { /* ignore */ }
+        
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        console.error(`[MCP DEBUG] New SSE stream connection starting...`);
       }
-
-      // 2. SDKの要件を満たすための Accept ヘッダー強制
-      const sseHeader = 'text/event-stream';
-      req.headers['accept'] = sseHeader;
-      req.headers['Accept'] = sseHeader;
-      try {
-        Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
-      } catch (e) { /* ignore */ }
 
       // 3. セッションIDの自動補完
       // URLにsessionIdパラメータが全くないPOSTリクエストのみ補完する
@@ -503,9 +503,10 @@ function startHttpServer(server: McpServer) {
     res.end('Not found');
   });
 
-  // サーバー全体のタイムアウト設定を無効化
-  httpServerInstance.timeout = 0;
-  httpServerInstance.keepAliveTimeout = 0;
+  // サーバー全体のタイムアウト設定を適切に調整 (1時間に設定)
+  httpServerInstance.timeout = 3600000;
+  httpServerInstance.keepAliveTimeout = 3600000;
+  httpServerInstance.headersTimeout = 3601000;
 
   // MCPサーバーをトランスポートに接続
   server.connect(httpTransport).catch(err => {
