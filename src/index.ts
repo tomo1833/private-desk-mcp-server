@@ -480,12 +480,17 @@ function startHttpServer(server: McpServer) {
   });
 
   const httpServerInstance = createServer(async (req, res) => {
+    // 全リクエストのロギング
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const path = url.pathname;
+    if (path !== '/health') {
+      console.error(`[MCP DEBUG] ${req.method} ${req.url}`);
+    }
 
+    // CORSヘッダー (常に設定)
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204); res.end(); return;
@@ -496,8 +501,8 @@ function startHttpServer(server: McpServer) {
     }
 
     // SSE 接続 (GET /sse)
-    if (path === '/sse' && req.method === 'GET') {
-      const sessionId = randomUUID();
+    if (path.startsWith('/sse') && req.method === 'GET') {
+      const sessionId = url.searchParams.get('sessionId') ?? randomUUID();
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -516,12 +521,19 @@ function startHttpServer(server: McpServer) {
     }
 
     // メッセージ受信 (POST /sse)
-    if (path === '/sse' && req.method === 'POST') {
+    if (path.startsWith('/sse') && req.method === 'POST') {
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', async () => {
         try {
+          if (!body) {
+            console.error('[MCP DEBUG] Empty POST body received');
+            res.writeHead(400); res.end('Empty body');
+            return;
+          }
+
           const message = JSON.parse(body);
+          console.error(`[MCP DEBUG] Processing ${message.method} (ID: ${message.id})`);
           
           const responsePromise = new Promise((resolve) => {
             if (message.id !== undefined) {
@@ -531,7 +543,6 @@ function startHttpServer(server: McpServer) {
             }
           });
 
-          // サーバーにメッセージを転送
           transport.forward(message);
 
           const timeout = setTimeout(() => {
@@ -539,6 +550,7 @@ function startHttpServer(server: McpServer) {
               const resolve = pendingRequests.get(message.id)!;
               resolve({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'Request timeout' } });
               pendingRequests.delete(message.id);
+              console.error(`[MCP DEBUG] Timeout for ${message.method} (ID: ${message.id})`);
             }
           }, 30000);
 
@@ -547,15 +559,17 @@ function startHttpServer(server: McpServer) {
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(response));
+          console.error(`[MCP DEBUG] Sent response for ${message.method} (ID: ${message.id})`);
 
-        } catch (e) {
-          console.error('❌ POST Error:', e);
+        } catch (e: any) {
+          console.error('❌ POST Error:', e.message);
           res.writeHead(400); res.end('Bad Request');
         }
       });
       return;
     }
 
+    console.error(`[MCP DEBUG] 404 Not Found: ${path}`);
     res.writeHead(404); res.end('Not found');
   });
 
