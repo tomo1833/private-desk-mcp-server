@@ -446,14 +446,13 @@ function startHttpServer(server: McpServer) {
     // 詳細なデバッグログ
     console.error(`[MCP DEBUG] ${req.method} ${req.url} (Accept: ${req.headers.accept})`);
 
-    // GETリクエスト（SSE開始）の時だけ、Acceptヘッダーに text/event-stream がなければ追加する
+    // MCPリクエストの処理
     if (path.startsWith('/sse') || path.startsWith('/mcp')) {
       // 強制的にヘッダーをクリーンアップして固定
       const sseHeader = 'text/event-stream';
       req.headers['accept'] = sseHeader;
       req.headers['Accept'] = sseHeader;
       
-      // Node.jsの内部でヘッダーが保護されている場合を考慮
       try {
         Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
       } catch (e) {
@@ -466,16 +465,12 @@ function startHttpServer(server: McpServer) {
         await httpTransport.handleRequest(req, res);
       } catch (e) {
         console.error('❌ handleRequest failed:', e);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        }
       }
       return;
-    }
-      console.error('❌ handleRequest failed:', e);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Internal Server Error' }));
-    }
-    return;
     }
 
     // 404
