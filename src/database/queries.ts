@@ -206,3 +206,35 @@ export async function deleteBlog(id: number): Promise<number> {
     [id]
   );
 }
+
+/**
+ * 汎用：テーブル一覧を取得
+ */
+export async function listTables(): Promise<string[]> {
+  const tables = await runSelect<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_prisma_%'"
+  );
+  return tables.map((t) => t.name);
+}
+
+/**
+ * 汎用：テーブル構造を取得
+ */
+export async function describeTable(tableName: string): Promise<any[]> {
+  // テーブル名が英数字とアンダースコアのみであることを確認（SQLインジェクション対策）
+  if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
+    throw new Error('Invalid table name');
+  }
+  return await runSelect(`PRAGMA table_info(${tableName})`);
+}
+
+/**
+ * 汎用：任意のクエリを実行（SELECTのみ）
+ */
+export async function executeQuery(sql: string, params: any[] = []): Promise<any[]> {
+  const trimmedSql = sql.trim().toUpperCase();
+  if (!trimmedSql.startsWith('SELECT') && !trimmedSql.startsWith('PRAGMA') && !trimmedSql.startsWith('WITH')) {
+    throw new Error('Only SELECT, PRAGMA, or WITH queries are allowed via this tool.');
+  }
+  return await runSelect(sql, params);
+}

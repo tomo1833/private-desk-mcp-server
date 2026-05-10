@@ -24,7 +24,9 @@ import {
   createBlog,
   updateBlog,
   deleteBlog,
-
+  listTables,
+  describeTable,
+  executeQuery,
 } from './database/queries.js';
 
 // MCP サーバーの初期化
@@ -359,6 +361,62 @@ function registerToolsAndResources(server: McpServer, options?: { allowDelete?: 
       }
     );
   }
+
+  // list_tables ツール
+  server.registerTool(
+    'list_tables',
+    {
+      description: 'List all available tables in the database',
+      inputSchema: {},
+    },
+    async () => {
+      const tables = await listTables();
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(tables, null, 2) }],
+      };
+    }
+  );
+
+  // describe_table ツール
+  server.registerTool(
+    'describe_table',
+    {
+      description: 'Get schema information for a specific table',
+      inputSchema: {
+        table_name: z.string().describe('Table name to describe'),
+      },
+    },
+    async ({ table_name }) => {
+      const info = await describeTable(table_name);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(info, null, 2) }],
+      };
+    }
+  );
+
+  // execute_query ツール
+  server.registerTool(
+    'execute_query',
+    {
+      description: 'Execute a custom SELECT query on the database',
+      inputSchema: {
+        sql: z.string().describe('The SQL SELECT query to execute'),
+      },
+    },
+    async ({ sql }) => {
+      try {
+        const results = await executeQuery(sql);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(results, null, 2) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text' as const, text: `Error executing query: ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+  );
 }
 
 // HTTPサーバー起動
