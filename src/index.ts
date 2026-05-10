@@ -503,12 +503,19 @@ function startHttpServer(server: McpServer) {
     // SSE 接続 (GET /sse)
     if (path.startsWith('/sse') && req.method === 'GET') {
       const sessionId = url.searchParams.get('sessionId') ?? randomUUID();
+      
+      // SSE用の標準ヘッダー
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no', // プロキシ対策
       });
 
+      // 接続維持のためのダミーデータ（コメント）を送信
+      res.write(': keep-alive\n\n');
+
+      // エンドポイント通知
       res.write(`event: endpoint\ndata: ${encodeURI('/sse?sessionId=' + sessionId)}\n\n`);
       sseResponses.set(sessionId, res);
       console.error(`[MCP DEBUG] SSE Connected: ${sessionId}`);
