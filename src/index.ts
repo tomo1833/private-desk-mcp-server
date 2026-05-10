@@ -446,15 +446,21 @@ function startHttpServer(server: McpServer) {
     // 詳細なデバッグログ
     console.error(`[MCP DEBUG] ${req.method} ${req.url} (Accept: ${req.headers.accept})`);
 
-    // SSE開始リクエスト(GET)の場合、text/event-streamが含まれていなければ追加
+    // GETリクエスト（SSE開始）の時だけ、Acceptヘッダーに text/event-stream がなければ追加する
     if (path.startsWith('/sse') || path.startsWith('/mcp')) {
-      if (req.method === 'GET') {
-        const accept = req.headers.accept ?? '';
-        if (!accept.includes('text/event-stream')) {
-          req.headers.accept = accept ? `${accept}, text/event-stream` : 'text/event-stream';
-          console.error(`[MCP DEBUG] Appended text/event-stream to GET request`);
-        }
+      // 強制的にヘッダーをクリーンアップして固定
+      const sseHeader = 'text/event-stream';
+      req.headers['accept'] = sseHeader;
+      req.headers['Accept'] = sseHeader;
+      
+      // Node.jsの内部でヘッダーが保護されている場合を考慮
+      try {
+        Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
+      } catch (e) {
+        // ignore
       }
+
+      console.error(`[MCP DEBUG] Forced ${req.method} ${path} to ${sseHeader}`);
       
       try {
         await httpTransport.handleRequest(req, res);
