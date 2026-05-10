@@ -474,6 +474,18 @@ function startHttpServer(server: McpServer) {
 
     // MCPリクエストの処理
     if (path.startsWith('/sse') || path.startsWith('/mcp')) {
+      // 全てのリクエスト（POST含む）に対して Accept ヘッダーを強制
+      // SDKの仕様により、POST時もこれがないと拒絶される場合があるため
+      const sseHeader = 'text/event-stream';
+      req.headers['accept'] = sseHeader;
+      req.headers['Accept'] = sseHeader;
+      
+      try {
+        Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
+      } catch (e) {
+        // ignore
+      }
+
       // セッションIDの自動補完（Open WebUI等のクライアント対応）
       if (req.method === 'POST' && !url.searchParams.has('sessionId') && lastSessionId) {
         const separator = req.url?.includes('?') ? '&' : '?';
@@ -487,19 +499,7 @@ function startHttpServer(server: McpServer) {
         console.error(`[MCP DEBUG] Session cleared via DELETE`);
       }
 
-      // GETリクエスト（SSEの開始ハンドシェイク）の時だけヘッダーを強制する
-      if (req.method === 'GET') {
-        const sseHeader = 'text/event-stream';
-        req.headers['accept'] = sseHeader;
-        req.headers['Accept'] = sseHeader;
-        
-        try {
-          Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
-        } catch (e) {
-          // ignore
-        }
-        console.error(`[MCP DEBUG] Forced GET ${path} to ${sseHeader}`);
-      }
+      console.error(`[MCP DEBUG] ${req.method} ${req.url} (Forced Accept: ${req.headers.accept})`);
       
       try {
         await httpTransport.handleRequest(req, res);
