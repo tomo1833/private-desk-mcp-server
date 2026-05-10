@@ -427,110 +427,92 @@ function startHttpServer(server: McpServer) {
   const port = process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : 3001;
   const host = process.env.MCP_HTTP_HOST ?? '0.0.0.0';
 
-  let lastSessionId: string | null = null;
+  // セッション管理用
+  const transports = new Map<string, SSEServerTransport>();
 
-  // StreamableHTTPServerTransportを作成
-  const httpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => {
-      lastSessionId = randomUUID();
-      return lastSessionId;
-    },
-    enableJsonResponse: true, // JSON形式のレスポンスを有効化（SSEとAcceptヘッダー要件を緩和）
-  });
-
-  // HTTPサーバーを作成
   const httpServerInstance = createServer(async (req, res) => {
-    // レスポンス終了時にステータスコードをログ出力
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const path = url.pathname;
+
+    // 詳細なログ
     res.on('finish', () => {
-      if (req.url && !req.url.includes('/health')) {
-        console.error(`[MCP DEBUG] Response: ${res.statusCode} for ${req.method} ${req.url}`);
+      if (path !== '/health') {
+        console.error(`[MCP DEBUG] ${req.method} ${req.url} -> ${res.statusCode}`);
       }
     });
 
-    // POSTボディのログ出力
-    if (req.method === 'POST') {
-      let body = '';
-      req.on('data', (chunk) => { body += chunk; });
-      req.on('end', () => {
-        if (req.url && !req.url.includes('/health')) {
-          console.error(`[MCP DEBUG] POST Body: ${body}`);
-        }
-      });
-    }
-
-    // ヘルスチェックエンドポイント
-    if (req.method === 'GET' && req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
+    // ヘルスチェック
+    if (path === '/health') {
+      res.writeHead(200);
       res.end('ok');
       return;
     }
 
-    // MCPエンドポイント
-    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-    const path = url.pathname;
-    
-    // 詳細なデバッグログ
-    console.error(`[MCP DEBUG] ${req.method} ${req.url} (Accept: ${req.headers.accept})`);
-
-    // MCPリクエストの処理
-    if (path.startsWith('/sse') || path.startsWith('/mcp')) {
-      // 全てのリクエスト（POST含む）に対して Accept ヘッダーを強制
-      // SDKの仕様により、POST時もこれがないと拒絶される場合があるため
-      const sseHeader = 'text/event-stream';
-      req.headers['accept'] = sseHeader;
-      req.headers['Accept'] = sseHeader;
+    // SSE 接続エンドポイント (GET /sse)
+    if (path === '/sse' && req.method === 'GET') {
+      console.error('[MCP DEBUG] New SSE connection request');
+      const transport = new SSEServerTransport('/message', res);
+      transports.set(transport.sessionId, transport);
       
+      transport.onclose = () => {
+        transports.delete(transport.sessionId);
+        console.error(`[MCP DEBUG] Session ${transport.sessionId} closed`);
+      };
+
+      await server.connect(transport);
+      return;
+    }
+
+    // メッセージ送信エンドポイント (POST /message?sessionId=...)
+    if (path === '/message' && req.method === 'POST') {
+      const sessionId = url.searchParams.get('sessionId');
+      const transport = sessionId ? transports.get(sessionId) : null;
+
+      if (!transport) {
+        console.error(`[MCP DEBUG] Session not found: ${sessionId}`);
+        res.writeHead(404);
+        res.end('Session not found');
+        return;
+      }
+
       try {
-        Object.defineProperty(req.headers, 'accept', { value: sseHeader, writable: true, configurable: true, enumerable: true });
+        await transport.handlePostMessage(req, res);
       } catch (e) {
-        // ignore
-      }
-
-      // セッションIDの自動補完（Open WebUI等のクライアント対応）
-      if (req.method === 'POST' && !url.searchParams.has('sessionId') && lastSessionId) {
-        const separator = req.url?.includes('?') ? '&' : '?';
-        req.url = `${req.url}${separator}sessionId=${lastSessionId}`;
-        console.error(`[MCP DEBUG] Recovered session ID for POST: ${lastSessionId}`);
-      }
-
-      // DELETEリクエストの場合はセッションIDをクリア（これ以降の補完を防ぐ）
-      if (req.method === 'DELETE') {
-        lastSessionId = null;
-        console.error(`[MCP DEBUG] Session cleared via DELETE`);
-      }
-
-      console.error(`[MCP DEBUG] ${req.method} ${req.url} (Forced Accept: ${req.headers.accept})`);
-      
-      try {
-        await httpTransport.handleRequest(req, res);
-      } catch (e) {
-        console.error('❌ handleRequest failed:', e);
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Internal Server Error' }));
-        }
+        console.error('❌ Failed to handle message:', e);
+        res.writeHead(500);
+        res.end('Internal Server Error');
       }
       return;
     }
 
-    // 404
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
+    // Open WebUI互換性のための /mcp ハンドラ (IDなしPOST等に対応)
+    if (path === '/mcp' || (path === '/sse' && req.method === 'POST')) {
+      const sessionId = url.searchParams.get('sessionId');
+      let transport = sessionId ? transports.get(sessionId) : null;
+
+      // セッションIDがない場合は、最新のセッションを再利用してみる
+      if (!transport && transports.size > 0) {
+        transport = Array.from(transports.values()).pop() || null;
+      }
+
+      if (transport) {
+        await transport.handlePostMessage(req, res);
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: 0, result: {} }));
+      }
+      return;
+    }
+
+    res.writeHead(404);
+    res.end('Not found');
   });
 
-  // MCPサーバーをHTTPトランスポートに接続
-  server.connect(httpTransport)
-    .then(() => {
-      httpServerInstance.listen(port, host, () => {
-        console.error(`✓ HTTP server listening on http://${host}:${port}`);
-        console.error(`  - Health check: GET http://${host}:${port}/health`);
-        console.error(`  - MCP endpoint: POST http://${host}:${port}/mcp`);
-      });
-    })
-    .catch((error) => {
-      console.error('❌ Failed to connect MCP server to HTTP transport:', error);
-      process.exit(1);
-    });
+  httpServerInstance.listen(port, host, () => {
+    console.error(`✓ MCP HTTP server listening on http://${host}:${port}`);
+    console.error(`  - SSE endpoint: http://${host}:${port}/sse`);
+    console.error(`  - Message endpoint: http://${host}:${port}/message`);
+  });
 }
 
 // サーバー起動
