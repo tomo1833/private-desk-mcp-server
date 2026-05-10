@@ -501,25 +501,21 @@ function startHttpServer(server: McpServer) {
       res.writeHead(200); res.end('ok'); return;
     }
 
-    // SSE 接続 (GET /sse)
-    if (path.startsWith('/sse') && req.method === 'GET') {
+    // SSE 接続 (GET) - /health 以外はすべて SSE 候補とする
+    if (req.method === 'GET' && path !== '/health') {
       const sessionId = url.searchParams.get('sessionId') ?? randomUUID();
       
-      // SSE用の標準ヘッダー
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
-        'X-Accel-Buffering': 'no', // プロキシ対策
+        'X-Accel-Buffering': 'no',
       });
 
-      // 接続維持のためのダミーデータ（コメント）を送信
       res.write(': keep-alive\n\n');
-
-      // エンドポイント通知
-      res.write(`event: endpoint\ndata: ${encodeURI('/sse?sessionId=' + sessionId)}\n\n`);
+      res.write(`event: endpoint\ndata: ${encodeURI(path + '?sessionId=' + sessionId)}\n\n`);
       sseResponses.set(sessionId, res);
-      console.error(`[MCP DEBUG] SSE Connected: ${sessionId}`);
+      console.error(`[MCP DEBUG] SSE Connected (Path: ${path}, Session: ${sessionId})`);
 
       req.on('close', () => {
         sseResponses.delete(sessionId);
@@ -528,20 +524,19 @@ function startHttpServer(server: McpServer) {
       return;
     }
 
-    // メッセージ受信 (POST /sse)
-    if (path.startsWith('/sse') && req.method === 'POST') {
+    // メッセージ受信 (POST) - すべてのパスを許可
+    if (req.method === 'POST') {
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', async () => {
         try {
           if (!body) {
-            console.error('[MCP DEBUG] Empty POST body received');
             res.writeHead(400); res.end('Empty body');
             return;
           }
 
           const message = JSON.parse(body);
-          console.error(`[MCP DEBUG] Processing ${message.method} (ID: ${message.id})`);
+          console.error(`[MCP DEBUG] POST ${path} -> ${message.method} (ID: ${message.id})`);
           
           const responsePromise = new Promise((resolve) => {
             if (message.id !== undefined) {
@@ -558,7 +553,6 @@ function startHttpServer(server: McpServer) {
               const resolve = pendingRequests.get(message.id)!;
               resolve({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'Request timeout' } });
               pendingRequests.delete(message.id);
-              console.error(`[MCP DEBUG] Timeout for ${message.method} (ID: ${message.id})`);
             }
           }, 30000);
 
@@ -567,7 +561,6 @@ function startHttpServer(server: McpServer) {
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(response));
-          console.error(`[MCP DEBUG] Sent response for ${message.method} (ID: ${message.id})`);
 
         } catch (e: any) {
           console.error('❌ POST Error:', e.message);
@@ -576,9 +569,6 @@ function startHttpServer(server: McpServer) {
       });
       return;
     }
-
-    console.error(`[MCP DEBUG] 404 Not Found: ${path}`);
-    res.writeHead(404); res.end('Not found');
   });
 
   httpServerInstance.listen(port, host, () => {
