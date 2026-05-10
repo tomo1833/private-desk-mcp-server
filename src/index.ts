@@ -447,11 +447,17 @@ function startHttpServer(server: McpServer) {
     console.error(`[MCP DEBUG] Path: ${path}`);
     console.error(`[MCP DEBUG] Original Accept: ${req.headers.accept}`);
 
-    // GETリクエスト（SSE接続）の場合は強制的にヘッダーを補完（Object.definePropertyで確実化）
-    if (req.method === 'GET') {
-      req.headers.accept = 'text/event-stream';
-      // SDKが内部でどう参照していても良いように強制上書き
-      Object.defineProperty(req.headers, 'accept', { value: 'text/event-stream' });
+    // SSEエンドポイントへのリクエストの場合、Acceptヘッダーを完全にクリーンアップして固定
+    if (path === '/sse' || path === '/mcp') {
+      delete req.headers['accept'];
+      req.headers['accept'] = 'text/event-stream';
+      Object.defineProperty(req.headers, 'accept', { 
+        value: 'text/event-stream',
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
+      console.error(`[MCP DEBUG] Forced Accept: ${req.headers.accept}`);
     }
 
     if (path === '/mcp' || path === '/sse') {
