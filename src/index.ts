@@ -442,12 +442,16 @@ function startHttpServer(server: McpServer) {
     // MCPエンドポイント
     const path = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname;
     
-    // デバッグログ
-    console.error(`[MCP DEBUG] ${req.method} ${path} - Accept: ${req.headers.accept}`);
+    // 詳細なデバッグログ
+    console.error(`[MCP DEBUG] Request: ${req.method} ${req.url}`);
+    console.error(`[MCP DEBUG] Path: ${path}`);
+    console.error(`[MCP DEBUG] Original Accept: ${req.headers.accept}`);
 
-    // GETリクエスト（SSE接続）の場合は強制的にヘッダーを補完
-    if (req.method === 'GET' && (path === '/sse' || path === '/mcp')) {
+    // GETリクエスト（SSE接続）の場合は強制的にヘッダーを補完（Object.definePropertyで確実化）
+    if (req.method === 'GET') {
       req.headers.accept = 'text/event-stream';
+      // SDKが内部でどう参照していても良いように強制上書き
+      Object.defineProperty(req.headers, 'accept', { value: 'text/event-stream' });
     }
 
     if (path === '/mcp' || path === '/sse') {
