@@ -514,7 +514,12 @@ function startHttpServer(server: McpServer) {
       });
 
       res.write(': keep-alive\n\n');
-      res.write(`event: endpoint\ndata: ${encodeURI(path + '?sessionId=' + sessionId)}\n\n`);
+      // エンドポイント通知 (絶対URLで送る)
+      const protocol = req.headers['x-forwarded-proto'] || 'http';
+      const hostHeader = req.headers.host || `${host}:${port}`;
+      const absoluteEndpoint = `${protocol}://${hostHeader}${path}?sessionId=${sessionId}`;
+
+      res.write(`event: endpoint\ndata: ${encodeURI(absoluteEndpoint)}\n\n`);
       sseResponses.set(sessionId, res);
       console.error(`[MCP DEBUG] SSE Connected (Path: ${path}, Session: ${sessionId})`);
 
