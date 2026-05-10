@@ -441,6 +441,12 @@ function startHttpServer(server: McpServer) {
 
     // MCPエンドポイント
     const path = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname;
+    
+    // SSE接続時のAcceptヘッダーを緩和（Open WebUI等のクライアント対応）
+    if (path === '/sse' && (!req.headers.accept || req.headers.accept === '*/*')) {
+      req.headers.accept = 'text/event-stream';
+    }
+
     if (path === '/mcp' || path === '/sse') {
     try {
       await httpTransport.handleRequest(req, res);
