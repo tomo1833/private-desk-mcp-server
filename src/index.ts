@@ -432,6 +432,13 @@ function startHttpServer(server: McpServer) {
 
   // HTTPサーバーを作成
   const httpServerInstance = createServer(async (req, res) => {
+    // レスポンス終了時にステータスコードをログ出力
+    res.on('finish', () => {
+      if (req.url && !req.url.includes('/health')) {
+        console.error(`[MCP DEBUG] Response: ${res.statusCode} for ${req.method} ${req.url}`);
+      }
+    });
+
     // ヘルスチェックエンドポイント
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
