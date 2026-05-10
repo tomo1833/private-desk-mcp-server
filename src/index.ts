@@ -3,10 +3,35 @@
 import 'dotenv/config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { createServer } from 'http';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+
+// ブリッジ用カスタムトランスポート
+class BridgeTransport implements Transport {
+  onmessage?: (message: JSONRPCMessage) => void;
+  onclose?: () => void;
+  onerror?: (error: Error) => void;
+  private _onServerResponse?: (message: JSONRPCMessage) => void;
+
+  constructor(onServerResponse: (message: JSONRPCMessage) => void) {
+    this._onServerResponse = onServerResponse;
+  }
+
+  async start() {}
+  async close() { this.onclose?.(); }
+  async send(message: JSONRPCMessage) {
+    // サーバーから出力されたメッセージをHTTPレスポンス等へ転送
+    this._onServerResponse?.(message);
+  }
+
+  // クライアント(HTTP)からのメッセージをサーバーへ入力
+  forward(message: JSONRPCMessage) {
+    this.onmessage?.(message);
+  }
+}
 
 import {
   searchPrivateDesk,
@@ -433,12 +458,8 @@ function startHttpServer(server: McpServer) {
   // 処理中のリクエストを追跡するMap (ID -> resolve関数)
   const pendingRequests = new Map<string | number, (response: any) => void>();
 
-  // ブリッジ用のトランスポートを作成
-  const serverTransport = new InMemoryTransport();
-  const clientTransport = new InMemoryTransport();
-
-  // 双方向接続
-  clientTransport.onmessage = (msg) => {
+  // カスタムブリッジトランスポートの作成
+  const transport = new BridgeTransport((msg) => {
     const response = msg as any;
     if (response.id !== undefined && pendingRequests.has(response.id)) {
       const resolve = pendingRequests.get(response.id)!;
@@ -451,11 +472,10 @@ function startHttpServer(server: McpServer) {
         res.write(sseData);
       }
     }
-  };
-  serverTransport.onmessage = (msg) => clientTransport.send(msg);
+  });
 
   // サーバーに接続 (1回だけ)
-  server.connect(serverTransport).catch(err => {
+  server.connect(transport).catch(err => {
     console.error('❌ Server Connect Error:', err);
   });
 
@@ -511,7 +531,8 @@ function startHttpServer(server: McpServer) {
             }
           });
 
-          await clientTransport.send(message);
+          // サーバーにメッセージを転送
+          transport.forward(message);
 
           const timeout = setTimeout(() => {
             if (message.id !== undefined && pendingRequests.has(message.id)) {
