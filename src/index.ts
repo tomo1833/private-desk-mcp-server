@@ -442,6 +442,17 @@ function startHttpServer(server: McpServer) {
       }
     });
 
+    // POSTボディのログ出力
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        if (req.url && !req.url.includes('/health')) {
+          console.error(`[MCP DEBUG] POST Body: ${body}`);
+        }
+      });
+    }
+
     // ヘルスチェックエンドポイント
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
